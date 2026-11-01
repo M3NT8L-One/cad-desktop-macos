@@ -12,6 +12,7 @@ import sys
 import threading
 import time
 import uuid
+from typing import Literal
 from datetime import datetime, timezone
 from steve_desktop.cad_document import validate, bracket, FORMAT_HELP, change_parameters, source_model
 
@@ -310,6 +311,20 @@ def cad_tools(folder, approve, activity):
         except Exception as exc:
             return {'error': str(getattr(exc, 'detail', exc))}
 
+    def cad_delete(mode: Literal['trash', 'restore', 'remove_file'], document_id: str | None = None,
+                   path: str | None = None, paths: list[str] | None = None,
+                   expected_revision: int | None = None) -> dict:
+        """Trash or restore a saved part or design, or remove component files (mode remove_file) as a new revision.
+
+        remove_file refuses while a joint or another file still uses the component. Files named in
+        the same request are removed together. Permanent deletion is not available from this tool.
+        """
+        if not hasattr(project, 'server'):
+            return {'ok': False, 'action': 'refused', 'document_id': document_id, 'revision': None,
+                    'removed': [], 'references': [], 'warnings': [], 'error': 'Open the CAD workspace first.'}
+        from steve_desktop.cad_delete import mcp_delete
+        return mcp_delete(project.server, mode, document_id, path, paths, expected_revision)
+
     async def cad_import_catalog_part(identifier: str, catalog: str = 'standard') -> dict:
         """Cache a real catalog STEP locally. Returns sha256 for Model.import_step plus provenance. If validating, call again until ready before cad_build. McMaster accepts previously user-downloaded parts only. Does not edit the model."""
         if not hasattr(project, 'server'):
@@ -323,4 +338,4 @@ def cad_tools(folder, approve, activity):
         except Exception as exc:
             return {'error': str(getattr(exc, 'detail', exc))}
 
-    return FunctionToolset([blender_render, cad_api_reference, cad_read, cad_inspect, cad_build, cad_set_parameters, cad_export, cad_revisions, cad_restore, cad_source_package, cad_import_package, cad_find_parts, cad_import_catalog_part], sequential=True)
+    return FunctionToolset([blender_render, cad_api_reference, cad_read, cad_inspect, cad_build, cad_set_parameters, cad_export, cad_revisions, cad_restore, cad_source_package, cad_import_package, cad_find_parts, cad_import_catalog_part, cad_delete], sequential=True)

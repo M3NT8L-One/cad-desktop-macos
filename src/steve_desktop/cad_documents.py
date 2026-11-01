@@ -1,6 +1,8 @@
 """Local document revisions and source packages using Studio's HTTP contracts."""
-import copy
 from fastapi import HTTPException
+from steve_desktop.cad_delete import (
+    delete_files, document_references, empty_trash, purge_documents, restore_documents, trash_documents,
+)
 
 
 def install(server):
@@ -50,30 +52,25 @@ def install(server):
             return {'document': doc, 'model': build, 'restored_from': body['commit_id']}
 
     def references(identifier):
-        designs = [{'id': d['id'], 'name': d['name'], 'trashed': bool(d.get('deleted_at')), 'branches': []}
-                   for d in server.state['documents'].values()
-                   if any(ref.get('document_id') == identifier for ref in d.get('links', {}).values())]
-        return {'designs': designs, 'studies': [], 'programs': [], 'count': len(designs),
-                'used_by': f'Used by {len(designs)} designs' if designs else ''}
+        return document_references(server, identifier)
 
     @app.get('/v1/documents/{identifier}/references')
     def read_references(identifier: str):
         return references(identifier)
 
+    @app.post('/v1/documents/{identifier}/files/delete')
+    def delete_component_files(identifier: str, body: dict):
+        return delete_files(
+            server, identifier, body.get('paths') or [], body.get('revision'),
+            force=bool(body.get('force')),
+            code=body.get('code') if 'code' in body else None,
+            files=body.get('files') if 'files' in body else None,
+            links=body.get('links') if 'links' in body else None,
+            source_supplied='code' in body or 'files' in body)
+
     @app.post('/v1/trash')
     def trash(body: dict):
-        from steve_desktop.cad_server import now
-        moved, skipped = [], []
-        with server.lock:
-            for identifier in body.get('ids', []):
-                doc = server.state['documents'].get(identifier)
-                if not doc or doc.get('deleted_at'):
-                    skipped.append({'id': identifier, 'reason': 'Document not found or already in Trash.'})
-                    continue
-                doc.update(deleted_at=now(), deleted_by='Local')
-                moved.append({'document': copy.deepcopy(doc), 'used_by': references(identifier)['used_by']})
-            server.save()
-        return {'moved': moved, 'skipped': skipped}
+        return trash_documents(server, body.get('ids', []))
 
     @app.get('/v1/trash')
     def list_trash():
@@ -83,15 +80,13 @@ def install(server):
 
     @app.post('/v1/trash/restore')
     def untrash(body: dict):
-        restored, skipped = [], []
-        with server.lock:
-            for identifier in body.get('ids', []):
-                doc = server.state['documents'].get(identifier)
-                if not doc or not doc.get('deleted_at'):
-                    skipped.append({'id': identifier, 'reason': 'Document is not in Trash.'})
-                    continue
-                doc.pop('deleted_at', None)
-                doc.pop('deleted_by', None)
-                restored.append(copy.deepcopy(doc))
-            server.save()
-        return {'restored': restored, 'skipped': skipped}
+        return restore_documents(server, body.get('ids', []))
+
+    @app.post('/v1/trash/purge')
+    def purge(body: dict):
+        # `force` is ignored. Permanent deletion never overrides a live link.
+        return purge_documents(server, body.get('ids') or [])
+
+    @app.post('/v1/trash/empty')
+    def empty():
+        return empty_trash(server)

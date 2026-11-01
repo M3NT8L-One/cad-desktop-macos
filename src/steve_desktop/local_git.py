@@ -113,6 +113,15 @@ class LocalGit:
         finally:self.lock.release()
 
     @staticmethod
+    def _remove_empty_parents(root, path):
+        directory=path.parent
+        root=root.resolve()
+        while directory.resolve()!=root:
+            try: directory.rmdir()
+            except OSError: break
+            directory=directory.parent
+
+    @staticmethod
     def safe_file(root, relative):
         target=root/relative
         if '.git' in Path(relative).parts or not target.resolve().is_relative_to(root.resolve()) or any(p.is_symlink() for p in [target,*target.parents] if p!=root.parent):
@@ -126,10 +135,11 @@ class LocalGit:
             current_id=self.server.context.get('document_id')
             if current and (not current_id or source(docs.get(current_id,{}))!=source(current)):
                 raise ValueError('Save the open CAD document before pushing source.')
-        if not docs: raise ValueError('There are no saved CAD documents to export')
+        live={identifier:doc for identifier,doc in docs.items() if not doc.get('deleted_at')}
+        if not live and not item.get('owned_files'): raise ValueError('There are no saved CAD documents to export')
         root=Path(item['path'])
         paths=[]
-        for identifier,doc in docs.items():
+        for identifier,doc in live.items():
             folder=self.safe_file(root,identifier);folder.mkdir(exist_ok=True)
             links={alias:{'path':ref['document_id'],**({'component':ref['component']} if ref.get('component') else {})}
                    for alias,ref in doc.get('links',{}).items()}
@@ -144,6 +154,7 @@ class LocalGit:
             if old not in paths:
                 path=self.safe_file(root,old)
                 if path.is_file():path.unlink()
+                self._remove_empty_parents(root, path)
                 paths.append(old)
         item['owned_files']=[p for p in paths if (root/p).is_file()]
         return paths
