@@ -1,11 +1,13 @@
 """Catalog title blocks. Imports the drawing runtime only: not the desktop host, the vault, or a keyring."""
 import hashlib
-import io
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
+import zlib
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,7 +17,8 @@ os.environ.setdefault("STEVE_PDF_FONTS", str(ROOT / "pdf-fonts"))
 from steve.drawing import SIZES, STANDARDS, TITLE_WIDTH, Sheet, _frame, _title_block
 from steve.drawing_templates import (
     assess_mass, catalog_summary, default_template_id, draw_block, draw_frame, draw_parts_table,
-    fits, format_mass, job_number, load_templates, new_sheet_template_id, parts_table_height,
+    fits, format_mass, job_number, load_templates, local_date, new_sheet_template_id, parts_table_height,
+    set_clock,
 )
 from steve.images import check
 
@@ -142,6 +145,85 @@ class CatalogTests(unittest.TestCase):
             self.assertFalse(catalog["alpha"]["logo"]["enabled"])
             summary = catalog_summary(catalog)
             self.assertEqual(summary["default"], "alpha")
+
+
+def _pdf_objects(data: bytes) -> dict[int, bytes]:
+    """PDF objects this drawing writer emits. Streams are inflated with zlib, which the runtime already uses."""
+    objects = {}
+    for match in re.finditer(rb"(\d+) 0 obj\n", data):
+        number = int(match.group(1))
+        start = match.end()
+        end = data.find(b"\nendobj", start)
+        body = data[start:end]
+        stream = body.find(b"stream\n")
+        if stream >= 0:
+            payload = body[stream + len(b"stream\n"):body.rfind(b"\nendstream")]
+            if b"FlateDecode" in body[:stream]:
+                payload = zlib.decompress(payload)
+            body = body[:stream] + payload
+        objects[number] = body
+    return objects
+
+
+def _pdf_info(data: bytes) -> tuple[float, float, str, int]:
+    """Page size in points, extracted text, and how many images the page embeds. Standard library only."""
+    objects = _pdf_objects(data)
+    size = None
+    fonts: dict[str, dict[int, str]] = {}
+    content = b""
+    images = data.count(b"/Subtype /Image")
+    for body in objects.values():
+        box = re.search(rb"/MediaBox\s*\[\s*[\d.]+\s+[\d.]+\s+([\d.]+)\s+([\d.]+)\s*\]", body)
+        if box:
+            size = (float(box.group(1)), float(box.group(2)))
+        font_dict = re.search(rb"/Font\s*<<(.+?)>>", body, re.S)
+        if font_dict and b"/Contents" in body:
+            named = {}
+            for name, ref in re.findall(rb"/(F\d+)\s+(\d+)\s+0\s+R", font_dict.group(1)):
+                named[name.decode()] = int(ref)
+            contents = re.search(rb"/Contents\s+(\d+)\s+0\s+R", body)
+            if contents:
+                content = objects[int(contents.group(1))]
+            for name, ref in named.items():
+                link = re.search(rb"/ToUnicode\s+(\d+)\s+0\s+R", objects[ref])
+                cmap = {}
+                if link:
+                    for gid, uni in re.findall(rb"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>", objects[int(link.group(1))]):
+                        cmap[int(gid, 16)] = bytes.fromhex(uni.decode()).decode("utf-16-be")
+                fonts[name] = cmap
+    pieces = []
+    current = {}
+    for token in re.finditer(rb"/(F\d+)\s+[^\s]+ Tf|<([0-9A-Fa-f]+)>\s*Tj", content):
+        if token.group(1):
+            current = fonts.get(token.group(1).decode(), {})
+            continue
+        raw = bytes.fromhex(token.group(2).decode())
+        for index in range(0, len(raw), 2):
+            pieces.append(current.get(int.from_bytes(raw[index:index + 2], "big"), ""))
+    if size is None:
+        raise AssertionError("The PDF has no MediaBox.")
+    return size[0], size[1], "".join(pieces), images
+
+
+class DateTests(unittest.TestCase):
+    def tearDown(self):
+        set_clock(None, None)
+
+    def test_auto_date_is_the_local_day_when_utc_is_already_tomorrow(self):
+        # 04:33 UTC on 1 November is 22:33 the previous evening at a fixed UTC−6 offset.
+        zone = timezone(timedelta(hours=-6))
+        instant = datetime(2026, 11, 1, 4, 33, tzinfo=timezone.utc)
+        set_clock(lambda: instant, zone)
+        self.assertEqual(local_date(), datetime(2026, 10, 31).date())
+        block = load_templates()["keystone-ansi"]
+        context = _context(fields={"drawn_by": "AR", "checked_by": "BK", "approved_by": "CL", "description": "Plate"})
+        texts = _texts(_paint(block, context))
+        self.assertEqual(texts.count("2026-10-31"), 3)
+        self.assertNotIn("2026-11-01", texts)
+        context["fields"]["drawn_date"] = "1999-01-02"
+        texts = _texts(_paint(block, context))
+        self.assertIn("1999-01-02", texts)
+        self.assertEqual(texts.count("2026-10-31"), 2)
 
 
 class JobAndMassTests(unittest.TestCase):
@@ -287,22 +369,19 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(len(images), 1)
 
     def test_pdf_page_and_text(self):
-        import pymupdf
         from steve.drawing_pdf import pdf
         block = load_templates()["keystone-ansi"]
         sheet = _paint(block)
         data = pdf([sheet], title="33107")
         self.assertTrue(data.startswith(b"%PDF"))
-        document = pymupdf.open(stream=data, filetype="pdf")
-        page = document[0]
-        self.assertAlmostEqual(page.rect.width, 431.8 * 72 / 25.4, delta=1.0)
-        self.assertAlmostEqual(page.rect.height, 279.4 * 72 / 25.4, delta=1.0)
-        text = page.get_text()
+        width, height, text, images = _pdf_info(data)
+        self.assertAlmostEqual(width, 431.8 * 72 / 25.4, delta=1.0)
+        self.assertAlmostEqual(height, 279.4 * 72 / 25.4, delta=1.0)
         self.assertIn("33107", text)
         self.assertIn("KEYSTONE SUPPLY", text)
         self.assertIn("0.44 lb", text)
         self.assertIn("B.O.M.", text)
-        self.assertGreaterEqual(len(page.get_images()), 1)
+        self.assertGreaterEqual(images, 1)
 
 
 class NoTemplateTests(unittest.TestCase):

@@ -143,11 +143,11 @@ These are `fields` keys. The title-block form already writes `fields`. New keys 
 |---|---|---|---|---|
 | DESCRIPTION | `description` | (51.582, 19.977, 88.458, 11.362) | 2.84 mm | Placeholder `<ModelDescription>`. No description attribute exists on `Model` or `Design`. The person types it. |
 | DRAWN | `drawn_by` | name sits in (0, 0, 51.582, 4.694), left of the date | 2.48 mm | `fields["drawn_by"]`. Sample value `HE&D` is an example, not a default. |
-| (same cell, right side) | `drawn_date` | right side of that cell | 2.27 mm | `fields["drawn_date"]`. Sample placeholder `<CreateDate>`. Do not stamp today's date. The drawing skill already says to leave a date out rather than invent one. |
+| (same cell, right side) | `drawn_date` | right side of that cell | 2.27 mm | `fields["drawn_date"]` when typed. Empty prints the machine's local calendar day (`YYYY-MM-DD`), never the UTC day. |
 | CHECKED | `checked_by` | (0, 4.694, 51.582, 4.440) | 2.48 mm | `fields["checked_by"]`. Sample empty. |
-| (same cell, right side) | `checked_date` | right side of that cell | 2.27 mm | `fields["checked_date"]`. Sample empty. |
+| (same cell, right side) | `checked_date` | right side of that cell | 2.27 mm | `fields["checked_date"]` when typed, otherwise the same local day as drawn. |
 | APPROVED | `approved_by` | (0, 9.134, 51.582, 4.463) | 2.48 mm | `fields["approved_by"]`. Sample empty. |
-| (same cell, right side) | `approved_date` | right side of that cell | 2.27 mm | `fields["approved_date"]`. Sample empty. |
+| (same cell, right side) | `approved_date` | right side of that cell | 2.27 mm | `fields["approved_date"]` when typed, otherwise the same local day as drawn. |
 | WEIGHT | `weight` | (73.878, 0, 37.481, 4.694) | 2.84 mm | `fields["weight"]`. Sample placeholder `<ModelMass>`. Not wired to mass. Open question 4 covers reading `Assignments.report(...)["mass"]` (grams) or `Design.mass`; the first build leaves the cell blank until someone types a value. |
 
 The drawn, checked, and approved cells each have a label on the left and two values with no line between the name and the date. One `title_block` cell holds one field, so the template format needs a field with two slots (see the file format). The single `date` key in `FIELDS` is the old one-date cell. This block has three dates; the template uses the three keys above.

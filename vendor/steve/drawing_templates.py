@@ -18,6 +18,8 @@ Field sources a template may ask for:
   ``fields["weight"]`` replaces the computed text and keeps the note.
 - ``material``: the part's material names. On an assembly the template's ``assembly_text`` is used instead.
 - ``scale``, ``size``, ``sheet``, ``revision``, ``title``: the sheet fills these in, same as the built-in block.
+- ``local_date`` on a signature slot: the machine's local calendar day (``YYYY-MM-DD``). A typed value replaces it.
+  The day is never taken from UTC.
 
 A logo is optional. ``logo.enabled`` with ``image``, ``x``, ``y``, ``width`` and ``height`` (millimetres
 from the block's lower-left) draws that image inside the box, aspect kept, centred. ``frame: false``
@@ -28,6 +30,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 
@@ -35,6 +38,9 @@ from .images import ImageError, check
 
 ID = re.compile(r"[a-z][a-z0-9-]{0,40}")
 JOB = re.compile(r"\s*(\d+)")
+# Tests pin the instant and the zone. Production leaves both unset and uses the machine's local date.
+_clock = None
+_zone = None
 # International avoirdupois pound. Inch drawings show pounds; millimetre drawings show kilograms.
 LB_PER_GRAM = 1 / 453.59237
 BODY_KINDS = {"box", "extrude", "revolve", "cylinder", "loft", "sweep"}
@@ -157,6 +163,30 @@ def _read(path: Path) -> dict:
             raise ValueError(f"Drawing template {data['id']}: {error}") from None
         data["_logo"] = {"name": str(image), "data": blob, "kind": kind, "pixels": (width, height)}
     return data
+
+
+def set_clock(now=None, zone=None) -> None:
+    """Pin the instant (`now()` → aware datetime) and the zone used for automatic dates. Both default to the machine."""
+    global _clock, _zone
+    _clock, _zone = now, zone
+
+
+def local_date(now=None, zone=None):
+    """The calendar date in `zone`, or the machine's local zone when `zone` is omitted.
+
+    `now` returns one aware instant. The date is that instant in the chosen zone, not the UTC day:
+    04:33 UTC on 1 November is still 31 October in a zone six hours behind. Never `utcnow` and never a
+    UTC calendar date. A naive instant is rejected so a test cannot silently take UTC.
+    """
+    moment = now() if now is not None else (_clock() if _clock is not None else datetime.now().astimezone())
+    if moment.tzinfo is None:
+        raise ValueError("The date clock must return an aware datetime, so the local day is unambiguous.")
+    chosen = zone if zone is not None else _zone
+    if chosen is not None:
+        moment = moment.astimezone(chosen)
+    else:
+        moment = moment.astimezone()
+    return moment.date()
 
 
 def job_number(title: str, part_name: str = "") -> tuple[str, str]:
@@ -368,7 +398,7 @@ def _draw_slots(sheet, field, slots, context, x, y, width, height):
     else:
         label_room = 1.0
     for index, slot in enumerate(slots):
-        value = context["fields"].get(slot.get("field") or "", "")
+        value = _slot_text(slot, context)
         if not value:
             continue
         size = float(slot.get("size", field.get("size", 2.5)))
@@ -380,6 +410,17 @@ def _draw_slots(sheet, field, slots, context, x, y, width, height):
             px = x + label_room
             anchor = "start"
         sheet.text(px, by, value, _fit_size(value, size, width - label_room, False), anchor)
+
+
+def _slot_text(slot: dict, context: dict) -> str:
+    """A signature slot. A typed value wins. `source: local_date` otherwise prints the local calendar day."""
+    key = slot.get("field") or ""
+    typed = (context.get("fields") or {}).get(key)
+    if typed:
+        return str(typed)
+    if slot.get("source") == "local_date":
+        return local_date().isoformat()
+    return ""
 
 
 def _value(field: dict, context: dict) -> str:

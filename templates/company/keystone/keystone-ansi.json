@@ -161,7 +161,7 @@
       "label_size": 3.19, "size": 2.48, "label_valign": "middle",
       "slots": [
         {"field": "approved_by", "align": "left"},
-        {"field": "approved_date", "align": "right", "size": 2.27}
+        {"field": "approved_date", "source": "local_date", "align": "right", "size": 2.27}
       ]
     },
     {
@@ -170,7 +170,7 @@
       "label_size": 3.19, "size": 2.48, "label_valign": "middle",
       "slots": [
         {"field": "checked_by", "align": "left"},
-        {"field": "checked_date", "align": "right", "size": 2.27}
+        {"field": "checked_date", "source": "local_date", "align": "right", "size": 2.27}
       ]
     },
     {
@@ -179,7 +179,7 @@
       "label_size": 3.19, "size": 2.48, "label_valign": "middle",
       "slots": [
         {"field": "drawn_by", "align": "left"},
-        {"field": "drawn_date", "align": "right", "size": 2.27}
+        {"field": "drawn_date", "source": "local_date", "align": "right", "size": 2.27}
       ]
     },
     {

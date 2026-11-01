@@ -112,8 +112,10 @@ Drawing(housing, standard="ISO", sheet="A3", views=("front", "top", "right", "is
   (`33107 Molded Top Plate` shows `33107`). `fields={"number": "..."}` overrides that. A name with no leading
   number is shown as itself. When the template asks for model mass, an inch sheet shows pounds (lb) and a
   millimetre sheet shows kilograms (kg). `fields={"weight": "..."}` replaces the computed figure. The parts
-  table and material cell, when the template has them, come from the part or the assembly. Do not invent dates,
-  names, or a weight the template can compute, and do not paste the template's lines into the call.
+  table and material cell, when the template has them, come from the part or the assembly. Date slots the
+  template marks as the local day fill themselves from the machine's calendar date, not UTC; a typed date
+  replaces that. Do not invent names or a weight the template can compute, and do not paste the template's
+  lines into the call.
 - `title_block`: the person's own title block layout, in place of the ISO 7200 one (left out, the standard block is
   drawn). Rows, bottom row first, each `{"height": mm, "cells": [...]}`; each cell `{"width": mm}` with optionally
   `"label"`, `"field"` (a `fields` key, or `title revision scale sheet size units projection`, which the sheet fills
