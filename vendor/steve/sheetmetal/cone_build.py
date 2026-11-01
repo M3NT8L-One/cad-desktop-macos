@@ -50,39 +50,91 @@ def _polygon(points):
     return face
 
 
-def _arc(radius, angle_deg):
+def _arc(radius, angle_deg, start_deg=0.0):
     if radius <= TOL:
         return None
-    angle = math.radians(angle_deg)
-    mid = angle / 2
+    start = math.radians(start_deg)
+    stop = math.radians(start_deg + angle_deg)
+    mid = (start + stop) / 2
 
     def point(turn):
         return cq.Vector(radius * math.cos(turn), radius * math.sin(turn), 0)
 
-    return cq.Edge.makeThreePointArc(point(0), point(mid), point(angle))
+    return cq.Edge.makeThreePointArc(point(start), point(mid), point(stop))
+
+
+# Stations along a plane-trim edge. The cut is analytic; this polyline is how the
+# flat face carries it. 64 equal sector-radius steps keeps the chord well under
+# 0.01 mm on shop-size cones (the edge's angle changes by a fraction of a degree).
+PLANE_EDGE_STEPS = 64
+
+
+def _xy(radius, angle_deg):
+    turn = math.radians(angle_deg)
+    return cq.Vector(radius * math.cos(turn), radius * math.sin(turn), 0)
+
+
+def _plane_angles(bend, radius):
+    """Flat angles of the two plane cuts at one sector radius."""
+    from .cone_math import plane_inset_angle_deg
+    inset = plane_inset_angle_deg(radius, bend['sin_alpha'], bend['plane_offset_mm'])
+    return inset, bend['untrimmed_sector_angle_deg'] - inset
+
+
+def _curve(bend, end=False, outer_to_inner=False):
+    inner, outer = sorted(bend['sector_radius_mm'])
+    radii = [inner + (outer - inner) * index / PLANE_EDGE_STEPS for index in range(PLANE_EDGE_STEPS + 1)]
+    if outer_to_inner:
+        radii.reverse()
+    points = []
+    for radius in radii:
+        start, finish = _plane_angles(bend, radius)
+        points.append(_xy(radius, finish if end else start))
+    return points
 
 
 def sector_face(bend):
-    """Annular sector (or a pie when the inner radius vanishes) in the flat's XY plane."""
+    """Annular sector (or a pie when the inner radius vanishes) in the flat's XY plane.
+
+    A plane seam replaces the two radial edges with the developed intersection of
+    the offset planes and the neutral cone.
+    """
     inner, outer = sorted(bend['sector_radius_mm'])
     angle = bend['sector_angle_deg']
     if angle <= TOL or outer <= TOL:
         fail('The cone sector has no area.')
-    turn = math.radians(angle)
-    outer_arc = _arc(outer, angle)
-    end = cq.Vector(outer * math.cos(turn), outer * math.sin(turn), 0)
-    start = cq.Vector(outer, 0, 0)
-    if inner <= TOL:
-        wire = cq.Wire.assembleEdges([
-            cq.Edge.makeLine((0, 0, 0), start), outer_arc, cq.Edge.makeLine(end, (0, 0, 0))])
+    if bend.get('seam') == 'plane' and bend.get('plane_offset_mm', 0) > TOL:
+        start_outer, end_outer = _plane_angles(bend, outer)
+        start_inner, end_inner = _plane_angles(bend, inner)
+        outer_arc = _arc(outer, end_outer - start_outer, start_outer)
+        end_curve = _curve(bend, end=True, outer_to_inner=True)
+        start_curve = _curve(bend, end=False, outer_to_inner=False)
+        if inner <= TOL:
+            edges = [outer_arc, cq.Edge.makeLine(_xy(outer, end_outer), cq.Vector(0, 0, 0)),
+                     cq.Edge.makeLine(cq.Vector(0, 0, 0), _xy(outer, start_outer))]
+        else:
+            inner_arc = _arc(inner, start_inner - end_inner, end_inner)
+            edges = [outer_arc]
+            edges.extend(cq.Edge.makeLine(end_curve[index], end_curve[index + 1]) for index in range(len(end_curve) - 1))
+            edges.append(inner_arc)
+            edges.extend(cq.Edge.makeLine(start_curve[index], start_curve[index + 1]) for index in range(len(start_curve) - 1))
+        wire = cq.Wire.assembleEdges(edges)
     else:
-        inner_arc = cq.Edge.makeThreePointArc(
-            cq.Vector(inner * math.cos(turn), inner * math.sin(turn), 0),
-            cq.Vector(inner * math.cos(turn / 2), inner * math.sin(turn / 2), 0),
-            cq.Vector(inner, 0, 0))
-        wire = cq.Wire.assembleEdges([
-            outer_arc, cq.Edge.makeLine(end, cq.Vector(inner * math.cos(turn), inner * math.sin(turn), 0)),
-            inner_arc, cq.Edge.makeLine(cq.Vector(inner, 0, 0), start)])
+        turn = math.radians(angle)
+        outer_arc = _arc(outer, angle)
+        end = cq.Vector(outer * math.cos(turn), outer * math.sin(turn), 0)
+        start = cq.Vector(outer, 0, 0)
+        if inner <= TOL:
+            wire = cq.Wire.assembleEdges([
+                cq.Edge.makeLine((0, 0, 0), start), outer_arc, cq.Edge.makeLine(end, (0, 0, 0))])
+        else:
+            inner_arc = cq.Edge.makeThreePointArc(
+                cq.Vector(inner * math.cos(turn), inner * math.sin(turn), 0),
+                cq.Vector(inner * math.cos(turn / 2), inner * math.sin(turn / 2), 0),
+                cq.Vector(inner, 0, 0))
+            wire = cq.Wire.assembleEdges([
+                outer_arc, cq.Edge.makeLine(end, cq.Vector(inner * math.cos(turn), inner * math.sin(turn), 0)),
+                inner_arc, cq.Edge.makeLine(cq.Vector(inner, 0, 0), start)])
     face = cq.Face.makeFromWires(wire)
     if not face.isValid():
         fail('The cone flat pattern is not a valid sector.')
@@ -90,9 +142,13 @@ def sector_face(bend):
 
 
 def sector_mark(bend):
-    """Mid-slant arc of a smooth cone, the ROLL mark."""
+    """Mid-slant arc of a smooth cone, the ROLL mark, staying inside a plane trim."""
     inner, outer = sorted(bend['sector_radius_mm'])
-    return _arc((inner + outer) / 2, bend['sector_angle_deg'])
+    radius = (inner + outer) / 2
+    if bend.get('seam') == 'plane' and bend.get('plane_offset_mm', 0) > TOL:
+        start, end = _plane_angles(bend, radius)
+        return _arc(radius, end - start, start)
+    return _arc(radius, bend['sector_angle_deg'])
 
 
 def _smooth_solid(bend, thickness):
@@ -107,6 +163,8 @@ def _smooth_solid(bend, thickness):
     if not maker.IsDone():
         fail('Could not build the conical sheet.')
     local = cq.Shape.cast(maker.Shape())
+    if bend.get('seam') == 'plane' and bend.get('plane_offset_mm', 0) > TOL:
+        local = _cut_offset_planes(local, bend['sweep_deg'], bend['plane_offset_mm'])
     placed = place(local, frame(cq.Plane(_vector(bend['origin']), xDir=_vector(bend['axis']), normal=_vector(bend['normal']))))
     names = Names()
     identity = bend['id']
@@ -127,6 +185,26 @@ def _smooth_solid(bend, thickness):
     for index, face in enumerate(seams):
         names.add(f'{identity}.seam.{index}', [face])
     return placed, names
+
+
+def _cut_offset_planes(solid, sweep_deg, offset):
+    """Drop the material outside two planes parallel to the axis.
+
+    The revolve runs from the +Y radial plane toward +Z. Each end plane is
+    ``offset`` millimetres toward the material from its radial plane.
+    """
+    beta = math.radians(sweep_deg)
+    size = 1.0e6
+
+    def cut(shape, origin, normal):
+        cutter = cq.Workplane(cq.Plane(origin=cq.Vector(*origin), normal=cq.Vector(*normal))).rect(size, size).extrude(-size)
+        return shape.cut(cutter.val())
+
+    solid = cut(solid, (0, 0, offset), (0, 0, 1))
+    solid = cut(solid, (0, offset * math.sin(beta), -offset * math.cos(beta)), (0, math.sin(beta), -math.cos(beta)))
+    if solid.Volume() <= TOL:
+        fail('The weld gap is too large for this sweep.')
+    return solid
 
 
 def smooth_piece(sheet, bend, flat):
@@ -189,6 +267,8 @@ def _smooth_sheet(identity, feature_id, rules, placement, spec):
                 width_mm=abs(outer - inner), straight_length_mm=0, sweep_deg=spec['sweep_deg'],
                 sector_angle_deg=spec['sector_angle_deg'], sector_radius_mm=list(spec['sector_radius_mm']),
                 inside_radius_mm=list(spec['inside_radius_mm']), height_mm=spec['height_mm'],
+                seam=spec.get('seam', 'arc'), plane_offset_mm=spec.get('plane_offset_mm', 0.0),
+                sin_alpha=spec.get('sin_alpha'), untrimmed_sector_angle_deg=spec.get('untrimmed_sector_angle_deg', spec['sector_angle_deg']),
                 origin=list(origin), axis=list(x_axis), outward=list(y_axis), normal=list(z_axis),
                 flat=frame(cq.Plane.XY()))
     sheet = Sheet(identity, rules, feature_id, {}, bends=[bend], reference=frame(
@@ -216,7 +296,15 @@ def _faceted_sheet(identity, feature_id, rules, placement, spec):
             local_face = tuple((point[0], -point[1]) for point in local)
             folded = _map_frame(local_face, solid)
         flat_plane = _map_frame(local_face, flat_world)
-        panels[panel_id] = Panel(panel_id, _polygon(local_face), ['start', 'right', 'end', 'left'], frame(folded), frame(flat_plane))
+        panel = Panel(panel_id, _polygon(local_face), ['start', 'right', 'end', 'left'], frame(folded), frame(flat_plane))
+        removal = layout.get('plane_removal')
+        last = len(layout['facets_local']) - 1
+        if removal and index in (0, last):
+            clipped = _clip_end(local, layout['solids'][index], spec['plane_offset_mm'], spec['sweep_deg'], index == last)
+            if local_face is not local:
+                clipped = tuple((point[0], -point[1]) for point in clipped)
+            panel.pattern = _polygon(clipped)
+        panels[panel_id] = panel
     panel_ids = list(panels)
     for index, bend in enumerate(layout['bends_world']):
         parent, child = panel_ids[index], panel_ids[index + 1]
@@ -302,12 +390,63 @@ def _bend_directions(quad, placement):
     return outward, normal
 
 
+def _clip_end(local, solid, offset, sweep_deg, end):
+    """Clip one end panel to the plane seam. Points stay in the panel's local plane."""
+    beta = math.radians(sweep_deg)
+
+    def signed(point):
+        if not end:
+            return point[2] - offset
+        return point[1] * math.sin(beta) - point[2] * math.cos(beta) - offset
+
+    kept = []
+    count = len(local)
+    for index in range(count):
+        start, stop = local[index], local[(index + 1) % count]
+        start_solid, stop_solid = solid[index], solid[(index + 1) % count]
+        ds, de = signed(start_solid), signed(stop_solid)
+        if ds >= -TOL and de >= -TOL:
+            kept.append(stop)
+        elif ds >= -TOL and de < -TOL:
+            kept.append(_blend(start, stop, ds / (ds - de)))
+        elif ds < -TOL and de >= -TOL:
+            kept.append(_blend(start, stop, ds / (ds - de)))
+            kept.append(stop)
+    if len(kept) < 3:
+        fail('The weld gap is too large for this sweep.')
+    return tuple(kept)
+
+
+def _blend(start, stop, fraction):
+    return (start[0] + fraction * (stop[0] - start[0]), start[1] + fraction * (stop[1] - start[1]))
+
+
+def trim_placed_solid(shape, sheet):
+    """Cut a placed faceted cone with the same two axial-parallel seam planes."""
+    offset = sheet.development['plane_offset_mm']
+    beta = math.radians(sheet.development['sweep_deg'])
+    located = plane(sheet.reference)
+    origin, y_axis, z_axis = located.origin, located.yDir, located.zDir
+    size = 1.0e6
+
+    def cut(solid, point, normal):
+        cutter = cq.Workplane(cq.Plane(origin=point, normal=normal)).rect(size, size).extrude(-size)
+        return solid.cut(cutter.val())
+
+    shape = cut(shape, origin + z_axis * offset, z_axis)
+    shape = cut(shape, origin + y_axis * (offset * math.sin(beta)) - z_axis * (offset * math.cos(beta)),
+                y_axis * math.sin(beta) - z_axis * math.cos(beta))
+    if shape.Volume() <= TOL:
+        fail('The weld gap is too large for this sweep.')
+    return shape
+
+
 def sheet_from_call(identity, feature_id, rules, location, radius1, radius2, height, slant, angle,
-                    radius_reference, weld_gap_in, facets):
+                    radius_reference, weld_gap_in, facets, seam='arc'):
     try:
         spec = develop(radius1, radius2, rules.thickness, rules.k_factor, height=height, slant=slant, angle=angle,
                        radius_reference=radius_reference, weld_gap_in=weld_gap_in, facets=facets,
-                       bend_radius=rules.radius)
+                       bend_radius=rules.radius, seam=seam)
     except ConeInputError as error:
         fail(str(error))
     return build_sheet(identity, feature_id, rules, location, spec)

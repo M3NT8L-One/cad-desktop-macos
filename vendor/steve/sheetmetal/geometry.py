@@ -230,13 +230,21 @@ class Panel:
     labels: list[str | list[str]]  # One per face edge; see label_names.
     folded: list
     flat: list
+    pattern: cq.Face | None = None  # Developed face when a plane seam trims an end panel.
 
     def record(self):
-        return dict(id=self.id, face=encode(self.face), labels=self.labels, folded=self.folded, flat=self.flat)
+        data = dict(id=self.id, face=encode(self.face), labels=self.labels, folded=self.folded, flat=self.flat)
+        if self.pattern is not None:
+            data['pattern'] = encode(self.pattern)
+        return data
 
     @classmethod
     def restore(cls, data):
-        return cls(**{**data, 'face': decode(data['face'])})
+        pattern = decode(data['pattern']) if data.get('pattern') else None
+        item = {key: value for key, value in data.items() if key != 'pattern'}
+        panel = cls(**{**item, 'face': decode(item['face'])})
+        panel.pattern = pattern
+        return panel
 
 
 @dataclass
@@ -556,7 +564,11 @@ class Sheet:
         pieces.extend(self.bend_piece(bend, flat) for bend in self.bends)
         if not flat:
             pieces.extend(form.piece(self.panels[form.panel].folded) for form in self.forms)
-        return fuse(pieces)
+        shape, names = fuse(pieces)
+        if not flat and self.development and self.development.get('seam') == 'plane' and self.development.get('kind') == 'faceted' and self.development.get('plane_offset_mm', 0) > 1e-9:
+            from .cone_build import trim_placed_solid
+            shape = trim_placed_solid(shape, self)
+        return shape, names
 
     def validate_attachments(self):
         """A panel edit must not leave material spanning a severed bend attachment."""
@@ -604,7 +616,10 @@ class Sheet:
     def flat_face(self):
         from .forms import panel_material,validate_forms
         validate_forms(self)
-        faces = [place(panel_material(self,p,True).face, p.flat) for p in self.panels.values()]
+        faces = []
+        for panel in self.panels.values():
+            material = panel_material(self, panel, True)
+            faces.append(place(material.pattern or material.face, panel.flat))
         faces.extend(place(self.bend_face(b), b['flat']) for b in self.bends)
         result, _ = fuse([(f, Names()) for f in faces], dimensionality=2)
         result = result.clean()

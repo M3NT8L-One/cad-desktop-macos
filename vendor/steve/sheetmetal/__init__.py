@@ -111,17 +111,20 @@ class SheetMetalMixin(RipMixin,FormMixin):
 
     def sheet_cone(self, id, radius1, radius2, height=None, slant=None, angle=360, thickness=None, radius=None,
                    k_factor=None, on='XY', body=None, name=None, suppressed=False, rule=None, source=None,
-                   radius_reference='inside', weld_gap_in=0, facets=None):
+                   radius_reference='inside', weld_gap_in=0, facets=None, seam='arc'):
         """A right circular cone or frustum, as a sheet-metal body with a flat pattern.
 
         ``radius1`` is the radius at the start of the axis and ``radius2`` at the other end, in
         millimetres. ``radius_reference`` is ``inside`` (the default), ``outside`` or ``neutral``.
         Give ``height`` (axial distance between the end planes) or ``slant`` (generator length),
         not both. ``angle`` is the material sweep about the axis, from just above 0 to 360 degrees.
-        ``weld_gap_in`` is a seam opening in inches (default 0). One inch is 25.4 mm; the gap is
-        converted with that factor and removed from the developed large-end boundary. ``facets``
-        omitted is a smooth rolled cone. ``facets=N`` (N ≥ 2) is a press-brake taper: N flat
-        panels and N−1 bends, with the radii measured at the corners. The sheet uses one K-factor.
+        ``weld_gap_in`` is a seam opening in inches (default 0). One inch is 25.4 mm.
+        ``seam='arc'`` (default) removes that length from the developed large end.
+        ``seam='plane'`` trims each radial end with a plane parallel to the axis, offset by half
+        the gap from that end's radial plane; the flat follows the developed curve of the cut.
+        ``facets`` omitted is a smooth rolled cone. ``facets=N`` (N ≥ 2) is a press-brake taper:
+        N flat panels and N−1 bends, radii at the corners. A plane seam cuts the end panels.
+        The sheet uses one K-factor.
         Placement matches ``sheet_roll``: the axis runs along ``on``'s X, the seam lies in the plane,
         and a positive sweep curls toward the plane normal.
         """
@@ -136,7 +139,7 @@ class SheetMetalMixin(RipMixin,FormMixin):
                 fail('A cone needs a K-factor. One K-factor is used for the whole sheet.')
             from .cone_build import sheet_from_call
             sheet = sheet_from_call(identity, id, rules, self.plane_of(on), radius1, radius2, height, slant,
-                                    angle, radius_reference, weld_gap_in, facets)
+                                    angle, radius_reference, weld_gap_in, facets, seam)
             self._commit_sheet(feature, sheet)
 
     def sheet_convert(self, id, face, thickness=None, radius=None, k_factor=None, body=None, name=None, suppressed=False, rule=None, source=None):

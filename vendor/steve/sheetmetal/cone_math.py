@@ -13,10 +13,14 @@ corner, not the flat). ``facets`` panels meet at ``facets - 1`` straight bends.
 The bend angle is the deflection between adjacent facet normals. Its allowance
 is the cylindrical allowance ``γ * (bend_radius + k * thickness)``.
 
-The weld gap is removed from the developed large-end boundary. For a smooth
-cone that shortens the outer sector arc by the gap. For a faceted cone it
-shortens the large-end cut path (chords plus bend allowances) by the same gap.
-Partial sweeps use the same rule. The default gap is 0.
+``seam`` chooses how ``weld_gap_in`` opens the joint. ``arc`` (the default)
+shortens the developed large-end boundary by the gap length: a smooth cone
+loses that much outer arc, and a faceted cone loses it from the large-end cut
+path. ``plane`` leaves the sweep whole and trims each radial end with a plane
+parallel to the axis, offset by half the gap from that end's radial plane.
+On a smooth cone that plane meets the neutral cone in a curve, not a radial
+line; its developed area below is the exact integral of that curve. A faceted
+cone cuts the same planes through the end panels.
 """
 from __future__ import annotations
 
@@ -288,8 +292,35 @@ def _polygon_area(points):
     return abs(total) / 2
 
 
+def plane_flat_area(sector_inner, sector_outer, sweep_deg, sin_alpha, offset_mm):
+    """Exact developed area of a smooth cone trimmed by two axial-parallel planes.
+
+    Each plane is ``offset_mm`` from a radial end plane. On the flat, the cut is
+    ``ψ(S) = sin(α) · asin(offset / (S · sin α))`` radians from that end, with
+    ``S`` the sector radius. The removed area integrates in closed form.
+    """
+    if offset_mm <= TOL:
+        span = math.radians(sweep_deg) * sin_alpha
+        return 0.5 * (sector_outer ** 2 - sector_inner ** 2) * span
+    scale = offset_mm / sin_alpha
+
+    def antiderivative(radius):
+        return (radius ** 2 / 2) * math.asin(scale / radius) + (scale / 2) * math.sqrt(radius ** 2 - scale ** 2)
+
+    removed = sin_alpha * (antiderivative(sector_outer) - antiderivative(sector_inner))
+    span = math.radians(sweep_deg) * sin_alpha
+    return 0.5 * (sector_outer ** 2 - sector_inner ** 2) * span - 2 * removed
+
+
+def plane_inset_angle_deg(sector_radius, sin_alpha, offset_mm):
+    """Flat angle, in degrees, between a radial end and the developed plane cut."""
+    if offset_mm <= TOL:
+        return 0.0
+    return math.degrees(sin_alpha * math.asin(offset_mm / (sector_radius * sin_alpha)))
+
+
 def develop(radius1, radius2, thickness, k_factor, *, height=None, slant=None, angle=360,
-            radius_reference='inside', weld_gap_in=0, facets=None, bend_radius=None):
+            radius_reference='inside', weld_gap_in=0, facets=None, bend_radius=None, seam='arc'):
     """Return the flat-pattern numbers for one cone.
 
     ``radius1`` is the radius at the start of the axis and ``radius2`` at the
@@ -298,6 +329,8 @@ def develop(radius1, radius2, thickness, k_factor, *, height=None, slant=None, a
     """
     if radius_reference not in ('inside', 'outside', 'neutral'):
         raise ConeInputError('Radius reference must be inside, outside or neutral.')
+    if seam not in ('arc', 'plane'):
+        raise ConeInputError("Seam must be 'arc' or 'plane'.")
     radius_start = _num(radius1, 'Radius', minimum=0)
     radius_end = _num(radius2, 'Radius', minimum=0)
     sweep = _num(angle, 'Sweep', minimum=0)
@@ -334,30 +367,78 @@ def develop(radius1, radius2, thickness, k_factor, *, height=None, slant=None, a
         raise ConeInputError('Equal end radii are a cylinder. Use sheet_roll.')
     sector_radius = tuple(radius * slant_length / abs(inside_delta) for radius in neutral)
     neutral_large = max(neutral)
+    neutral_small = min(neutral)
+    sin_alpha = abs(inside_delta) / slant_length
     large_arc = math.radians(sweep) * neutral_large
-    if gap >= large_arc - TOL and facets is None:
-        raise ConeInputError('The weld gap is wider than the developed large-end arc.')
-    # Smooth: the gap shortens the outer sector arc, and the sweep with it.
-    smooth_sweep = sweep if gap <= TOL else math.degrees((large_arc - gap) / neutral_large)
-    smooth_arc = math.radians(smooth_sweep) * neutral_large
-    sector_angle = smooth_sweep * abs(inside_delta) / slant_length
-    area = math.radians(smooth_sweep) / 2 * (neutral[0] + neutral[1]) * slant_length
-    result = dict(kind='cone' if facets is None else 'faceted', radius_reference=radius_reference,
+    offset = gap / 2
+    if seam == 'arc':
+        if gap >= large_arc - TOL and facets is None:
+            raise ConeInputError('The weld gap is wider than the developed large-end arc.')
+        # Smooth: the gap shortens the outer sector arc, and the sweep with it.
+        smooth_sweep = sweep if gap <= TOL else math.degrees((large_arc - gap) / neutral_large)
+        smooth_arc = math.radians(smooth_sweep) * neutral_large
+        sector_angle = smooth_sweep * sin_alpha
+        area = math.radians(smooth_sweep) / 2 * (neutral[0] + neutral[1]) * slant_length
+    else:
+        if gap > TOL and sweep >= 360 - TOL:
+            raise ConeInputError('A plane seam needs a partial sweep; a full turn has only one end plane.')
+        half = math.radians(sweep) / 2
+        limit = math.sin(half) if half <= math.pi / 2 + TOL else 1.0
+        if offset >= neutral_small * limit - TOL:
+            raise ConeInputError('The weld gap is too large for this sweep.')
+        smooth_sweep = sweep
+        sector_inner, sector_outer = sorted(sector_radius)
+        sector_angle = sweep * sin_alpha
+        trimmed = sector_angle - 2 * plane_inset_angle_deg(sector_outer, sin_alpha, offset)
+        smooth_arc = math.radians(trimmed) * sector_outer
+        area = plane_flat_area(sector_inner, sector_outer, sweep, sin_alpha, offset)
+    result = dict(kind='cone' if facets is None else 'faceted', radius_reference=radius_reference, seam=seam,
                   inside_radius_mm=inside, outside_radius_mm=outside, neutral_radius_mm=neutral,
                   height_mm=axial, slant_mm=slant_length, requested_sweep_deg=sweep,
                   sweep_deg=smooth_sweep if facets is None else sweep, weld_gap_in=0.0 if weld_gap_in is None else float(weld_gap_in),
-                  weld_gap_mm=gap, sector_radius_mm=sector_radius, sector_angle_deg=sector_angle,
+                  weld_gap_mm=gap, plane_offset_mm=offset if seam == 'plane' else 0.0,
+                  sector_radius_mm=sector_radius, sector_angle_deg=sector_angle,
                   large_arc_mm=smooth_arc, area_mm2=area, facets=None if facets is None else int(round(float(facets))),
                   bend_angle_deg=None, bend_allowance_mm=None, bend_count=0, corner_chord_mm=None,
-                  developed_length_mm=smooth_arc, k_factor=k_factor, thickness_mm=thickness)
+                  developed_length_mm=smooth_arc, k_factor=k_factor, thickness_mm=thickness, sin_alpha=sin_alpha)
+    if seam == 'plane':
+        outer = max(sector_radius)
+        result['untrimmed_sector_angle_deg'] = sweep * sin_alpha
+        result['untrimmed_large_arc_mm'] = large_arc
+        result['sector_angle_deg'] = result['untrimmed_sector_angle_deg'] - 2 * plane_inset_angle_deg(outer, sin_alpha, offset)
     if facets is None:
         return result
     if bend_radius is None:
         raise ConeInputError('A faceted cone uses the sheet bend radius.')
-    layout = _facet_layout(inside[0], inside[1], axial, sweep, facets, bend_radius, k_factor, thickness, gap)
+    if seam == 'plane' and offset > TOL:
+        opening = math.radians(sweep / int(round(float(facets))))
+        if offset >= min(inside) * math.sin(opening) - TOL:
+            raise ConeInputError('The weld gap is too large for this sweep.')
+    layout = _facet_layout(inside[0], inside[1], axial, sweep, facets, bend_radius, k_factor, thickness,
+                           0.0 if seam == 'plane' else gap)
+    developed = layout['developed_length_mm']
+    flat_area = layout['flat_area_mm2']
+    if seam == 'plane' and offset > TOL:
+        removed = _plane_facet_removal(axial, inside[0] - inside[1], sweep, int(round(float(facets))), offset)
+        developed -= removed['length_mm']
+        flat_area -= removed['area_mm2']
+        layout = {**layout, 'plane_removal': removed}
     result.update(kind='faceted', sweep_deg=sweep, bend_angle_deg=layout['bend_angle_deg'],
                   bend_allowance_mm=layout['bend_allowance_mm'], bend_count=layout['bend_count'],
-                  corner_chord_mm=layout['corner_chord_mm'], developed_length_mm=layout['developed_length_mm'],
-                  area_mm2=layout['flat_area_mm2'])
+                  corner_chord_mm=layout['corner_chord_mm'], developed_length_mm=developed,
+                  area_mm2=flat_area)
     result['_layout'] = layout
     return result
+
+
+def _plane_facet_removal(height, delta_radius, sweep_deg, facets, offset):
+    """Area and large-end length a plane seam removes from the two end panels.
+
+    The cut meets each end chord at ``offset / cos(δ/2)`` from the seam corner,
+    so the removed piece of a panel is a strip of that width and the panel's
+    face height. ``δ`` is the plan angle of one facet.
+    """
+    half = math.radians(sweep_deg / facets) / 2
+    face_height = math.hypot(height, delta_radius * math.cos(half))
+    width = offset / math.cos(half)
+    return dict(width_mm=width, face_height_mm=face_height, area_mm2=2 * width * face_height, length_mm=2 * width)
