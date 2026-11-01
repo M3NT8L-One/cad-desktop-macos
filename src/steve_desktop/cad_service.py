@@ -270,6 +270,11 @@ def cad_tools(folder, approve, activity):
         """Restore a prior model revision without deleting later versions."""
         return await asyncio.to_thread(project.restore, revision)
 
+    def cad_drawing_templates() -> dict:
+        """List title-block templates available to new drawings: id, suggested sheet, typed fields, and which one is the default. Geometry stays in the template files."""
+        from steve.drawing_templates import catalog_summary
+        return catalog_summary()
+
     def cad_api_reference(class_name: str = 'Model', method: str | None = None) -> dict:
         """Read exact upstream CAD API signatures and documentation. Classes: Model, Sketch, Component, Design."""
         import ast
@@ -323,4 +328,4 @@ def cad_tools(folder, approve, activity):
         except Exception as exc:
             return {'error': str(getattr(exc, 'detail', exc))}
 
-    return FunctionToolset([blender_render, cad_api_reference, cad_read, cad_inspect, cad_build, cad_set_parameters, cad_export, cad_revisions, cad_restore, cad_source_package, cad_import_package, cad_find_parts, cad_import_catalog_part], sequential=True)
+    return FunctionToolset([blender_render, cad_api_reference, cad_drawing_templates, cad_read, cad_inspect, cad_build, cad_set_parameters, cad_export, cad_revisions, cad_restore, cad_source_package, cad_import_package, cad_find_parts, cad_import_catalog_part], sequential=True)

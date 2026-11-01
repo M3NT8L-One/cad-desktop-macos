@@ -44,6 +44,8 @@ export interface Settings {
   'mcp.enabledTools': string[];
   /** Sheet templates saved in the Drawing tab (drawing/code.ts). */
   'drawing.templates': DrawingTemplate[];
+  /** New sheets: 'catalog' preselects the catalog default, '' the built-in block, or a template id. */
+  'drawing.defaultTemplate': string;
   /** The top bar's quick button (shell/QuickButton.tsx): its menu's items, in order; [] = automatic. */
   'toolbar.quickItems': string[];
   /** Its main item; '' = the first item (or automatic). */
@@ -90,6 +92,7 @@ export const DEFAULTS: Settings = {
   'toolbar.quickItems': [],
   'toolbar.quickMain': '',
   'drawing.templates': [],
+  'drawing.defaultTemplate': 'catalog',
   'connectors.automatic': false,
   'connectors.automaticDeclined': false,
   'connectors.automaticRequest': {},

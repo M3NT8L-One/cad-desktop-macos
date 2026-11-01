@@ -20,6 +20,7 @@ import { balloonRows } from './code';
 import { ItemMenu } from './menus';
 import { askAboutSheet, callsIn, dimensionRows, moveSheet, replacements, selectItem, selectSheet, undoReplacement, useDrawingTab } from './state';
 import { cancelTool, placePending, startNewSheet, useDrawingTool } from './tools';
+import { loadDrawingCatalog } from './templates';
 import Paper from './Paper';
 import styles from './Drawing.module.css';
 
@@ -169,6 +170,7 @@ export default function DrawingTab() {
   const built = sheets.from;
   // The tree, the Inspector and the tools read what the build reported for each sheet, and what it was drawn from.
   useEffect(() => { useDrawingTab.setState({ reports, built }); }, [reports, built]);
+  useEffect(() => { if (active) void loadDrawingCatalog(); }, [active]);
   // Sheets are numbered as the code declares them; when they all come from this file, sheet n is call n.
   const page = Math.max(0, Math.min(selected, sheets.markup.length - 1));
   // A view a tool just wrote goes where it was clicked, once the sheet is drawn with it.

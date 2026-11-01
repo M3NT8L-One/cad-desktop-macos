@@ -41,6 +41,8 @@ import {
 import { anchorOf, refFor, type Point, type SheetPick } from './picks';
 import { dimensionText, drawDimension, measure, type DimensionDrawing, type DimensionKind } from './measure';
 import { addSheet, currentCall, editSheet, nextStandard, selectItem, useDrawingTab } from './state';
+import { defaultSheetChanges, loadDrawingCatalog } from './templates';
+import { setting } from '@/settings/store';
 import { setDesignTab } from '@/state/designTab';
 import { listOf, orthographic, viewsOf, viewTitle } from './items';
 
@@ -173,7 +175,15 @@ export function toolBlocked(kind: ToolKind): string | null {
 /** New sheet: shows the Drawing tab with the sheet's setup in the Dock (nothing is written until OK), on the standard
  *  last used, or a saved template's. */
 export function startNewSheet(template?: DrawingTemplate) {
-  const changes = template ? templateChanges(template).changes : { standard: py(nextStandard()) };
+  // The catalog load finishes before the dialog opens, so a default template is preselected and an
+  // existing drawing (no template= in its call) is left on the built-in block.
+  void openNewSheet(template);
+}
+
+async function openNewSheet(template?: DrawingTemplate) {
+  if (!template) await loadDrawingCatalog();
+  const preset = template ? undefined : defaultSheetChanges(setting('drawing.defaultTemplate'));
+  const changes = template ? templateChanges(template).changes : (preset ?? { standard: py(nextStandard()) });
   setDesignTab('drawing');
   useDrawingTool.setState({ ...IDLE, tool: 'new-sheet', options: { component: null, standardViews: false }, changes });
 }

@@ -104,6 +104,16 @@ Drawing(housing, standard="ISO", sheet="A3", views=("front", "top", "right", "is
 - `fields`: `number owner drawn_by checked_by approved_by date material finish tolerances revision`, and any other
   `"label": "value"` (e.g. `"customer"`, `"project"`, `"weight"`), shown as extra title block cells. REV shows
   `revision`, else the last row of `revisions`.
+- `template`: the id of a title-block template from the catalog (`cad_drawing_templates`, the same list as
+  `GET /v1/drawing-templates`). Leave it out and the sheet keeps the built-in block, which is what every drawing
+  written before templates still does. For a new sheet, pass the catalog's default id when there is one.
+  `template=""` is the built-in block. `title_block=` still replaces the template on that sheet. A template may
+  fill its drawing number from the leading digits of the title, or of the part name when the title has none
+  (`33107 Molded Top Plate` shows `33107`). `fields={"number": "..."}` overrides that. A name with no leading
+  number is shown as itself. When the template asks for model mass, an inch sheet shows pounds (lb) and a
+  millimetre sheet shows kilograms (kg). `fields={"weight": "..."}` replaces the computed figure. The parts
+  table and material cell, when the template has them, come from the part or the assembly. Do not invent dates,
+  names, or a weight the template can compute, and do not paste the template's lines into the call.
 - `title_block`: the person's own title block layout, in place of the ISO 7200 one (left out, the standard block is
   drawn). Rows, bottom row first, each `{"height": mm, "cells": [...]}`; each cell `{"width": mm}` with optionally
   `"label"`, `"field"` (a `fields` key, or `title revision scale sheet size units projection`, which the sheet fills

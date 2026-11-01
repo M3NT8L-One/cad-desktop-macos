@@ -3,7 +3,7 @@
  * options of the tool that's open (drawing/ToolPanel.tsx). Each edits a sheet's `Drawing(...)` arguments through
  * `edit` (Python text; undefined removes one): the Inspector writes and rebuilds at once, a tool keeps a draft until OK.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FilePlus2, Pin, Plus, RotateCcw, Save, Stamp, X } from 'lucide-react';
 import { Button, Field, IconButton, Section, Segmented, Select, Switch } from '@/ui';
 import ui from '@/ui/ui.module.css';
@@ -20,6 +20,7 @@ import {
 import { listOf, orthographic, refsOf, viewTitle, viewsOf, weldTypeName } from './items';
 import { applyTemplate, currentCall, removeTemplate, saveTemplate } from './state';
 import { startNewSheet } from './tools';
+import { defaultSheetChanges, drawingCatalog, loadDrawingCatalog, type CatalogTemplate } from './templates';
 import styles from './Drawing.module.css';
 import { askConfirm } from '@/ui/confirm';
 
@@ -87,6 +88,16 @@ export function SheetFormatForm({ call, edit, report }: { call: DrawingCall; edi
   const shaded = arg(call, 'shaded');
   const dimensions = arg(call, 'dimensions');
   const fix = report ? withViewsFixed(call, report) : null;
+  const [catalog, setCatalog] = useState(drawingCatalog);
+  useEffect(() => { void loadDrawingCatalog().then((next) => setCatalog(next)); }, []);
+  const templateArg = arg(call, 'template');
+  const templateId = typeof templateArg.value === 'string' ? templateArg.value : '';
+  const applyCatalog = (id: string) => {
+    if (!id) { edit({ template: undefined }); return; }
+    const item = catalog.templates.find((template) => template.id === id);
+    const preset = item ? defaultSheetChanges(id) : undefined;
+    edit(preset ?? { template: py(id) });
+  };
   const setStandard = (next: 'ISO' | 'ANSI') => {
     if (next === standard) return;
     const changes: Record<string, string | undefined> = { standard: py(next) };
@@ -96,6 +107,11 @@ export function SheetFormatForm({ call, edit, report }: { call: DrawingCall; edi
   };
   return (
     <div className={styles.stack}>
+      <Field label="Title block">
+        <Select ariaLabel="Title block" value={templateId || 'builtin'} disabled={!templateArg.editable}
+          onChange={(value) => applyCatalog(value === 'builtin' ? '' : value)}
+          options={[{ value: 'builtin', label: 'Built-in' }, ...catalog.templates.map((template: CatalogTemplate) => ({ value: template.id, label: template.label }))]} />
+      </Field>
       <Segmented size="sm" value={standard} onChange={setStandard} options={[
         { value: 'ISO', label: 'ISO', disabled: !standardArg.editable }, { value: 'ANSI', label: 'ANSI / ASME', disabled: !standardArg.editable }]} />
       <div className={styles.grid}>
@@ -161,6 +177,11 @@ export function TitleBlockForm({ call, edit }: { call: DrawingCall; edit: Edit }
   const title = arg(call, 'title');
   const fields = arg(call, 'fields');
   const values = asDict(fields.value);
+  const [catalog, setCatalog] = useState(drawingCatalog);
+  useEffect(() => { void loadDrawingCatalog().then((next) => setCatalog(next)); }, []);
+  const templateId = arg(call, 'template').value;
+  const catalogFields = typeof templateId === 'string'
+    ? catalog.templates.find((template) => template.id === templateId)?.fields ?? null : null;
   const layout = arg(call, 'title_block');
   const own = layout.raw !== undefined && layout.value !== null ? titleLayout(layout.value) : null;
   const [label, setLabel] = useState('');
@@ -198,6 +219,23 @@ export function TitleBlockForm({ call, edit }: { call: DrawingCall; edit: Edit }
           </div>
         ) : <InCode />}
         {own && !fields.editable && <InCode />}
+      </div>
+    );
+  }
+  if (catalogFields) {
+    return (
+      <div className={styles.stack} data-layout="template">
+        {titleBox}
+        <p className={styles.hint}>Leave a field empty and the sheet fills it: the drawing number from the leading digits of the name, weight from the model mass, material from the part. An assembly’s material line stays the template’s own sentence.</p>
+        <div className={styles.grid}>
+          {catalogFields.map((key) => (
+            <Field key={key} label={key.replace(/_/g, ' ')}>
+              <Text label={key} value={text(values[key])} disabled={!fields.editable}
+                placeholder={key === 'number' ? 'Leading number of the name' : key === 'weight' ? 'Model mass' : undefined}
+                onCommit={(value) => setField(key, value)} />
+            </Field>
+          ))}
+        </div>
       </div>
     );
   }

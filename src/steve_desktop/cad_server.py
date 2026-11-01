@@ -489,6 +489,11 @@ class LocalCadServer:
                 self.save()
             return {'settings': self.state['settings'], 'revision': 1}
 
+        @app.get('/v1/drawing-templates')
+        def drawing_templates():
+            from steve.drawing_templates import catalog_summary
+            return catalog_summary()
+
         @app.get('/v1/terms')
         def terms():
             return {'required': False, 'accepted': True}

@@ -4,16 +4,27 @@
 
 **Goal:** Let a drawing sheet carry a company title block loaded from a data file, starting with the measured ANSI B block in the uploads, without hard-coding that company into the drawing engine, the UI, or the assistant tools.
 
+## Owner decisions (these override the defaults below)
+
+The build follows these answers. Where an earlier section still describes the old default, this section wins.
+
+1. **Logo on.** The file is `templates/company/keystone/logo.jpg` (963×473 RGB JPEG, sha256 `17b15915e6e863f0e157f080a85fa1c86287cb4dbc7633d65f86a53361e0f6b6`). It sits in the company directory with the template JSON, not in the generic package. The generic slot is an image path, a box, and aspect kept.
+2. **Spellings corrected** in the template text: SYMMETRICAL, UNAUTHORIZED, RADII.
+3. **DRAWING NO** defaults to the job number: the leading digits of the drawing title, else of the part name (`33107 Molded Top Plate Assembly` → `33107`). `fields["number"]` overrides it per drawing. If neither name starts with a number, the name itself is shown.
+4. **Weight** is the model mass. Inch sheets show pounds (lb, 2 decimal places). Millimetre sheets show kilograms (kg, 3 decimal places). 1 lb = 453.59237 g. Bodies with no material or density, suppressed body features, and declared fasteners with no mass are left out of the total, and the sheet prints `WT EXCL. HARDWARE` when fasteners were left out, otherwise `WT INCOMPLETE`. `fields["weight"]` replaces the figure and keeps the note.
+5. **B** is the suggested size. Any sheet in `SIZES` whose inner frame holds the block is allowed. A sheet that uses this template draws no zone grid.
+6. **Material and the top-right parts table are in this build.** A part sheet fills the material cell from the part's materials. An assembly sheet prints `SEE ABOVE INDIVIDUAL PART DETAILS`. The parts table (ITEM, QTY, PART NAME, MATERIAL, MASS) hangs from the inner top-right, and the stacked parts list is not drawn again.
+7. **New sheets preselect** the catalog template marked `default`. A `Drawing` call with no `template` keeps the built-in block, so existing drawings do not change. The account setting `drawing.defaultTemplate` is `catalog` unless someone sets `''` (built-in) or an id.
+
 **Architecture:** A shipped JSON catalog describes frames, lines, fixed text, autofill fields, and an optional logo. `Drawing(..., template="id")` resolves one file at render time and draws it in the existing title-block layer, so SVG, DXF, and PDF export stay on the current path. A call with no `template` keeps today's built-in block. New sheets pick the catalog entry flagged `default`, and a per-drawing argument overrides that. The company name and logo exist only in that company's JSON file.
 
 **Tech Stack:** Python drawing runtime (`vendor/steve/drawing.py`, `vendor/steve/drawing_pdf.py`, ezdxf for DXF), the Drawing tab (`cad-web/src/drawing/`), CAD build artifacts (`write_artifacts`), desktop CAD tools (`src/steve_desktop/cad_service.py` `cad_tools`).
 
 ## Global Constraints
 
-- Phase 1 is this plan only. The build phase is the task list below and has not started.
-- Keep the upstream product name and logo off anything company-specific. Keep the company name and logo out of generic code. The company lives only in its template data file (and in this plan, which records the measurement).
+- Keep the upstream product name and logo off anything company-specific. Keep the company name and logo out of generic code. The company lives only in `templates/company/keystone/` (the JSON and the logo) and in this plan, which records the measurement.
 - Tests must not import or touch the vault or keyring/keychain code. No secrets.
-- Do not commit the logo image.
+- The logo is committed only inside that company directory, so dropping `templates/company/` removes it.
 - The drawing engine already draws a title block. This plan adds a catalog in front of that path. It does not replace `title_block=` for a hand-written layout.
 
 ---
@@ -327,19 +338,19 @@ Run: `python -m unittest tests.test_title_block_template -v`
 
 The existing `tests/test_cad_drawings.py` boots the CAD server. Leave it unchanged. Do not extend it for this work, because that path is heavier than the renderer and is the wrong place to prove field coordinates.
 
-## 7. Open questions
+## 7. Open questions — answered
 
-Each one has a default the build will use if the owner does not answer. The build does not invent a second behavior.
+The owner answered these during the build. The decisions are at the top of this plan. Nothing in this list is still open.
 
-1. **Logo on the standard template?** The sample block has the artwork; other drawings use a block without it. **Default:** `logo.enabled` is false, and the image stays out of the repo. The box is stored so it can be turned on in the JSON alone.
-2. **Keep the source spelling?** The file says SYMETRICAL, UNAUTHERIZED, and RADI. **Default:** copy them verbatim so a new sheet matches the current PDF. The owner edits the JSON to correct them.
-3. **Is DRAWING NO the part name?** The Fusion tag is `MODEL_PART_NAME`, and there is no drawing-number attribute. **Default:** bind that cell to `title`. Do not add a number cell that the sample does not have.
-4. **Autofill WEIGHT from model mass?** The sample left `<ModelMass>` unfilled. Mass exists on the material report and on design mass overrides, in grams, and is not a title-block field. **Default:** `fields["weight"]` is typed. Empty means blank.
-5. **MATERIAL TYPE(S) on a part sheet.** This assembly block prints "SEE ABOVE INDIVIDUAL PART DETAILS" as fixed text. A part sheet may want `fields["material"]` instead. **Default:** keep the fixed sentence in this file. A part block would be a second JSON, later.
-6. **Which sizes are offered first?** **Default:** any size in `SIZES` whose inner frame can hold the block, suggested size B, no scaling. The dialog does not hide ISO.
-7. **Replace the zone grid?** **Default:** a sheet with this template draws the measured frame and center marks. A sheet without a template keeps `_frame`.
-8. **Top-right BOM with MATERIAL and MASS?** **Default:** not in the first build. The existing parts list stays above the title block.
-9. **Should new drawings in this fork start on the company block?** **Default:** the new-sheet dialog preselects the catalog file flagged `default`. Existing calls with no `template` stay on the built-in block. The account setting can force the built-in block for new sheets.
+1. Logo on, file in the company directory, generic image slot.
+2. Spellings corrected.
+3. DRAWING NO is the job number, overridable, and falls back to the name.
+4. Weight is model mass in lb or kg, with an exclusion note, and a typed override.
+5. Part material autofills; assemblies keep the fixed sentence.
+6. B is the suggested size; any size the block fits is allowed.
+7. Templated sheets have no zone grid.
+8. The top-right parts table is in this build.
+9. New sheets preselect the catalog default. Existing drawings keep the built-in block.
 
 ## File structure for the build
 
