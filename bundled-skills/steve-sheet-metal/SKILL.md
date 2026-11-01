@@ -16,6 +16,9 @@ precedence over upstream service workflows and tool names in that reference.
   the document schema returned by `cad_read`. Use `cad_set_parameters` for parameter
   changes. Inspect the build result and errors before reporting success.
 - `cad_api_reference` provides installed Model, Sketch, Component and Design signatures.
+  `cad_api_reference(class_name="SheetMetal", method="sheet_cone")` reads the cone call. There is no
+  separate cone tool: build with `cad_build`, read `upstream.sheet_metal.<body>.development` from
+  `cad_inspect`, and export the flat with `cad_export(format="DXF")` (the existing sheet-metal ZIP).
   The installed runtime and available tool schemas are authoritative if reference
   examples describe newer or unavailable capabilities.
 - Export built geometry using `cad_export` with the current revision and a supported
@@ -79,6 +82,15 @@ model.sheet_base("base", "sketch_1", rule=rule)
   exact (optional angle interpolation), with no extrapolation and no silent K fallback.
 - `GaugeTable({"16ga": {"thickness": 1.5, "radius": 1.5, "k_factor": 0.44}}, material=…,
   bend_table=…)`, then `gauges.rule("16ga")`, for gauge-driven parts.
+- `sheet_cone(id, radius1, radius2, height=…, angle=360, rule=…)` makes a rolled cone or frustum.
+  Give `height` (axial) or `slant` (generator length), not both. `radius_reference` is `"inside"` (default),
+  `"outside"` or `"neutral"`. `angle` is the sweep about the axis (`90` is a quarter, `360` is a full ring
+  with one seam). `weld_gap_in` is a seam opening in inches, converted as `gap_mm = weld_gap_in * 25.4` and
+  removed from the developed large end; the default is 0. One K-factor per sheet. `facets=N` (N ≥ 2) is a
+  press-brake taper: radii are the corner circumradius, N flat panels and N−1 bends. Omit `facets` for a
+  smooth roll, developed as an annular sector of the neutral surface. Placement matches `sheet_roll`
+  (`on` plane, axis along X). The flat is in the same DXF as every other sheet: outline on `CUT`, the
+  smooth mid-slant arc on `ROLL`, facet bends on `BEND_UP` / `BEND_DOWN`.
 - `sheet_roll(id, width, angle, rule=…, on="XY")` makes an open cylinder (angle < 360°; the rest is the
   seam). It starts at the plane's origin, tangent to the plane, runs `width` along the plane's X, and
   its first material heads along the plane's +Y. A positive angle curls toward the plane's normal
@@ -238,6 +250,7 @@ Do not claim those forms predict draw-in, thinning, springback or supplier readi
 - lofted transitions;
 - recognising already-bent imported parts;
 - arbitrary custom forming solids, rectangular embosses and beads beyond the listed tools;
-- general cone rips or reverse seam-to-bend joining;
+- ripping an imported cone (author a `sheet_cone` instead);
+- reverse seam-to-bend joining;
 - bend sequencing and tooling collisions;
 - nesting.

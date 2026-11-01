@@ -179,7 +179,7 @@ export function SheetSection() {
   const units = useSetting('display.units');
   const body = chosenBody(report, chosen);
   if (!report || !body) return null;
-  const origin = features?.find((feature) => feature.id === body.body && ['sheet_base', 'sheet_roll', 'sheet_convert'].includes(feature.kind));
+  const origin = features?.find((feature) => feature.id === body.body && ['sheet_base', 'sheet_roll', 'sheet_cone', 'sheet_convert'].includes(feature.kind));
   const named = origin?.kwargs?.rule?.kind === 'sheet_rule';
   const rules = body.rules;
   return (
@@ -195,6 +195,8 @@ export function SheetSection() {
           {(rules.source || rules.bend_table?.source) && (
             <div data-source><dt>Source</dt><dd>{isEstimate(rules.source) && <span className={styles.estimate} data-estimate>Estimate</span>}{rules.source ?? rules.bend_table?.source}</dd></div>
           )}
+          {body.development?.kind === 'cone' && <div><dt>Sector</dt><dd>{num(body.development.sector_angle_deg, 3)}° · R {num(Math.max(...body.development.sector_radius_mm), 3)} mm</dd></div>}
+          {body.development?.kind === 'faceted' && body.development.bend_angle_deg != null && <div><dt>Facet bends</dt><dd>{body.development.bend_count} × {num(body.development.bend_angle_deg, 3)}°</dd></div>}
           {body.flat && <div data-emphasis><dt>Flat size</dt><dd id="flat-size">{size(body, units)}</dd></div>}
           {body.flat && <div><dt>Flat area</dt><dd>{areaText(body.flat.area_mm2, units)}</dd></div>}
           {body.flat && <div><dt>Cut length</dt><dd>{lengthText(body.flat.perimeter_mm, units, 1)}</dd></div>}

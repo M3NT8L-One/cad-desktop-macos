@@ -20,7 +20,12 @@ export interface Segment {
   start?: XY; end?: XY; midpoint?: XY; center?: XY; radius_mm?: number; points?: XY[];
 }
 
-export interface FlatBend { id: string; kind?: 'bend' | 'roll'; segment?: number; start: XY; end: XY; direction: 'up' | 'down'; angle_deg: number; radius_mm: number; allowance_mm: number }
+export interface FlatBend {
+  id: string; kind?: 'bend' | 'roll' | 'cone'; segment?: number; start: XY; end: XY; direction: 'up' | 'down';
+  angle_deg: number; radius_mm: number; allowance_mm: number;
+  /** A smooth cone's ROLL mark is this arc. `radius_mm` stays the neutral radius; the curve uses `radius_mm_curve`. */
+  type?: 'arc'; center?: XY; midpoint?: XY; radius_mm_curve?: number;
+}
 
 /** A placed form in the flat: its center and process marks (forming drawing only, never cut lines). */
 export interface FlatForm { id: string; kind: string; center: XY; direction: 'up' | 'down'; flat_treatment: string; marks: Segment[] }
@@ -73,6 +78,12 @@ export interface SheetBody {
   state: 'folded' | 'unfolded';
   fixed: string;
   flat?: Flat;
+  /** Cone development: sector radii and angle, neutral radii, weld gap, and facet bend angle when present. */
+  development?: {
+    kind: 'cone' | 'faceted'; sector_angle_deg: number; sector_radius_mm: number[];
+    neutral_radius_mm: number[]; large_arc_mm: number; weld_gap_mm: number; sweep_deg: number;
+    bend_count?: number; bend_angle_deg?: number | null; developed_length_mm?: number;
+  };
   forms?: SheetForm[];
   rips?: SheetRip[];
   /** File names in the flat-pattern ZIP; the forming DXF and form table exist only for bodies with forms. */

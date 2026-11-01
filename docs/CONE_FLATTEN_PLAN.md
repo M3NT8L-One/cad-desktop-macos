@@ -1,6 +1,6 @@
 # Cone and tapered-sheet flat patterns
 
-Study only. No feature code in this change. A tapered ring made of four quarter-frustums can be built today only as a plain solid (`Model.cone` in `vendor/steve/model.py`), which has no sheet history and no flat. Rolled cylinders and straight brake bends already flatten. Cones, cone segments, and press-brake tapers do not.
+Implemented on `feature/cone-flatten` as `sheet_cone`. A tapered ring made of four quarter-frustums is four smooth cones (`angle=90`), each with its own flat. `Model.cone` stays a plain solid.
 
 ## What already works
 
@@ -24,7 +24,7 @@ The flat is the union of panel faces and bend-allowance rectangles in the materi
 
 `Model.cone(id, radius1, radius2, height, ...)` is a solid primitive. It does not create a `Sheet`. Leave it that way.
 
-There is no sheet-metal test module under `tests/`.
+Sheet-metal tests live in `tests/test_sheet_cone.py`. The pure cases load `cone_math.py` without CadQuery. Geometry and DXF cases skip when CadQuery is not installed.
 
 ## Smooth cone or frustum
 
@@ -35,9 +35,10 @@ User inputs, millimetres and degrees:
 | Input | Meaning |
 | --- | --- |
 | `radius1`, `radius2` | Radii of the two ends. Either may be larger. `0` is a pointed cone. |
-| `height` | Axial distance between the end planes. |
+| `height` or `slant` | Exactly one. `height` is the axial distance between the end planes. `slant` is the generator length. The other is derived. Both or neither is an error. |
 | `angle` | Material sweep about the axis, in `(0, 360]`. `90` is a quarter segment. `360` is a full ring with one seam. |
-| rule thickness `t`, K-factor `k` | Same rule object as every other sheet (`SheetMetalRule`). |
+| `weld_gap_in` | Seam opening in inches. Default 0. Converted as `gap_mm = weld_gap_in * 25.4` and removed from the developed large-end boundary, for smooth and faceted cones and for partial sweeps. |
+| rule thickness `t`, K-factor `k` | One K per sheet, the same rule object as every other sheet (`SheetMetalRule`). |
 | `on` | Placement plane, same convention as `sheet_roll`: axis along the plane's X, large-or-start end at the origin, seam on the plane, positive sweep toward the plane's +Y. |
 
 Ends are cut on planes perpendicular to the axis (a ring's usual dimension). `radius_reference` says whether the given radii are inside (default), outside, or neutral. Inside matches `sheet_roll`.
@@ -167,15 +168,15 @@ Bend-table CSV columns stay as they are. A cone row is identified by `kind=cone`
 
 ### Core
 
-- `vendor/steve/sheetmetal/rules.py` — pure function for the neutral radii, sector radii, angle, arc, and area. No CadQuery. Faceted `γ` can live beside it.
+- `vendor/steve/sheetmetal/cone_math.py` — pure development (no CadQuery): neutral radii, sector, weld gap, facet angle and developed length. `cone_build.py` turns that into a sheet.
 - `vendor/steve/sheetmetal/geometry.py` — cone solid, sector face, `kind == "cone"` branches in `bend_face` / `bend_piece` / `bend_line`. Cache `VERSION` stays 1; new fields are optional and old sheets omit `kind` (the exporter already defaults `kind` to `bend`).
 - `vendor/steve/sheetmetal/__init__.py` — `sheet_cone(...)`. Signature:
 
 ```
-sheet_cone(self, id, radius1, radius2, height, angle=360,
-           thickness=None, radius=None, k_factor=None,
-           on="XY", body=None, name=None, suppressed=False,
-           rule=None, source=None, radius_reference="inside", facets=None)
+sheet_cone(self, id, radius1, radius2, height=None, slant=None, angle=360,
+           thickness=None, radius=None, k_factor=None, on="XY", body=None,
+           name=None, suppressed=False, rule=None, source=None,
+           radius_reference="inside", weld_gap_in=0, facets=None)
 ```
 
   `radius` is accepted only so the rule helper stays uniform; the smooth sector ignores it. `facets=None` is smooth.
@@ -272,10 +273,12 @@ Recorded on this branch before any feature code, Python 3.12.3 (the project asks
 
 `PYTHONPATH=src python3 -m unittest discover -s tests`: 72 tests, 27 passed, 5 failed, 39 errors, 1 skipped. The five failures are process and worker-pool tests whose workers never became ready. The errors are missing modules (`cadquery`, `fastapi`, `PySide6`, `pydantic`, `httpx`, `PIL`, `keyring`, `psutil`) or a CAD worker exiting because of that. No test covers sheet metal.
 
-## Open questions
+## Decisions
 
-- The quarter-ring job is not in the repo. This plan treats it as four smooth 90° frustums with square-cut ends and inside radii. If the shop brakes them, the same geometry is `facets` on each quarter.
-- Whether a rolled-cone K should be a different rule from the air-bend K on the same part. The model can carry only one K per sheet plus per-bend overrides; a cone body that is only a cone has no brake bend to override.
-- Slant height as a user input. Axial height is what a ring drawing usually shows. Slant is reported either way.
-- Faceted radii at the corners (recommended) versus across the flats. They differ by `cos(δ/2)`.
-- A default seam gap for welding, versus making the user shorten `angle`.
+These were open in the study and are now fixed in `sheet_cone`:
+
+- The real quarters are smooth rolled cones. `facets` omitted is that cone. `facets=N` is the press-brake taper, built in the same call.
+- One K-factor per sheet. A cone with no K-factor is an error. Faceted bend allowances use that same K (`γ × (bend radius + K × thickness)`), not a second K.
+- Axial height or slant height, exactly one. `Give an axial height or a slant height.` and `Give an axial height or a slant height, not both.`
+- Faceted radii are the corner circumradius. The corner chord is `2 R sin(δ / 2)`.
+- `weld_gap_in` defaults to 0. Inches become millimetres by multiplying by 25.4 inside `cone_math.weld_gap_mm`. The gap is removed from the developed large-end arc (smooth) or the developed large-end cut path (faceted), including partial sweeps.

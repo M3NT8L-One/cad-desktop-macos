@@ -6,7 +6,7 @@
  */
 import type { Context, FeatureSpec, Field, Values } from '@/modeling/specs';
 import {
-  BaseFlangeIcon, ContourFlangeIcon, ConvertSheetIcon, CornerIcon, EdgeFlangeIcon, FormToolIcon, HemIcon, JogIcon, RefoldIcon, ReliefIcon, RipIcon, RollIcon, SheetCutIcon,
+  BaseFlangeIcon, ContourFlangeIcon, ConvertSheetIcon, CornerIcon, EdgeFlangeIcon, FormToolIcon, HemIcon, JogIcon, RefoldIcon, ReliefIcon, RipIcon, RollIcon, SheetConeIcon, SheetCutIcon,
   SketchedBendIcon, TabIcon, UnfoldIcon,
 } from '@/icons/cad';
 import { splitTuple } from '@/modeling/bodies';
@@ -214,6 +214,25 @@ export const SHEET_SPECS: Record<string, FeatureSpec> = {
       { key: 'on', label: 'Plane', type: 'plane', initial: '"XY"', omit: '"XY"' },
     ],
     read: readRules,
+  },
+  sheet_cone: {
+    kind: 'sheet_cone', label: 'Cone', prefix: 'cone', icon: SheetConeIcon, sheet: true,
+    description: 'A rolled cone or frustum, or a press-brake taper, with a flat pattern. Radii are at the two ends. A smooth cone develops to an annular sector; facets make flat panels and bend lines.',
+    fields: [
+      { key: 'radius1', label: 'Start radius', type: 'length', required: true, initial: '50', hint: 'At the start of the axis. For a faceted taper this is the corner radius, not the distance across a flat.' },
+      { key: 'radius2', label: 'End radius', type: 'length', required: true, initial: '30', hint: 'At the other end. Zero is a pointed cone.' },
+      { key: 'radius_reference', label: 'Radii are', type: 'choice', initial: '"inside"', omit: '"inside"',
+        options: [{ value: '"inside"', label: 'Inside' }, { value: '"outside"', label: 'Outside' }, { value: '"neutral"', label: 'Neutral' }] },
+      { key: 'length_mode', label: 'Length', type: 'choice', virtual: true, initial: 'height', options: [{ value: 'height', label: 'Axial height' }, { value: 'slant', label: 'Slant height' }] },
+      { key: 'height', label: 'Height', type: 'length', required: true, initial: '40', when: (v) => v.length_mode !== 'slant', hint: 'Axial distance between the end planes.' },
+      { key: 'slant', label: 'Slant', type: 'length', required: true, initial: '45', when: (v) => v.length_mode === 'slant', hint: 'Straight generator length between the end planes.' },
+      { key: 'angle', label: 'Sweep', type: 'angle', initial: '360', omit: '360', hint: 'Material around the axis. 90 is a quarter segment. 360 is a full ring with one seam.' },
+      { key: 'weld_gap_in', label: 'Weld gap', type: 'number', initial: '0', omit: '0', hint: 'Seam opening in inches. It is converted to millimetres (× 25.4) and removed from the developed large end.' },
+      { key: 'facets', label: 'Facets', type: 'number', initial: '', omit: '', hint: 'Empty rolls a smooth cone. 2 or more makes that many flat panels with a bend between them.' },
+      ...rules('1.5', 'Inside bend radius. A smooth cone does not use it. A faceted taper bends at this radius.'),
+      { key: 'on', label: 'Plane', type: 'plane', initial: '"XY"', omit: '"XY"' },
+    ],
+    read: (k) => ({ length_mode: k.slant ? 'slant' : 'height', ...readRules(k) }),
   },
   sheet_convert: {
     kind: 'sheet_convert', label: 'Convert to sheet metal', prefix: 'sheet', icon: ConvertSheetIcon, sheet: true,

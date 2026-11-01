@@ -20,7 +20,7 @@ const notPlacement = (state: AppState) => (state.doc.kind !== 'design' || state.
 const hasPanel = (state: AppState) => state.modeling?.features.some((feature) => !feature.suppressed
   && (feature.kind === 'sheet_base' || feature.kind === 'sheet_convert')) || 'Create a base flange or convert a flat plate first.';
 const hasSheet = (state: AppState) => state.modeling?.features.some((feature) => !feature.suppressed
-  && ['sheet_base', 'sheet_convert', 'sheet_roll', 'sheet_rip'].includes(feature.kind)) || 'Create or convert a sheet-metal body first.';
+  && ['sheet_base', 'sheet_convert', 'sheet_roll', 'sheet_cone', 'sheet_rip'].includes(feature.kind)) || 'Create or convert a sheet-metal body first.';
 const hasReport = (state: AppState) => !!state.displayed?.artifacts.sheet_metal || 'Generate a sheet-metal part first.';
 const all = (...checks: ((state: AppState) => true | string)[]) => (state: AppState) => {
   for (const check of checks) { const result = check(state); if (result !== true) return result; }
@@ -45,6 +45,7 @@ export const sheetMetalCommands: Command[] = [
   feature('jog', 'sheet_jog'),
   feature('tab', 'sheet_tab'),
   feature('roll', 'sheet_roll', 'Roll', () => true),
+  feature('cone', 'sheet_cone', 'Cone', () => true),
   feature('cut', 'sheet_cut', 'Cut', hasSheet),
   feature('relief', 'sheet_relief'),
   feature('bend', 'sheet_bend', 'Bend'),
@@ -68,7 +69,7 @@ export const sheetMetalCommands: Command[] = [
 export const sheetMetalRibbon: RibbonGroup[] = [
   { title: 'Rules', priority: MID, items: ['sheet.rules'] },
   { title: 'Sketch', priority: KEEP, items: ['model.sketch'] },
-  { title: 'Create', priority: KEEP, items: ['sheet.base', 'sheet.flange', 'sheet.contour', 'sheet.hem', 'sheet.jog', 'sheet.tab', 'sheet.roll'] },
+  { title: 'Create', priority: KEEP, items: ['sheet.base', 'sheet.flange', 'sheet.contour', 'sheet.hem', 'sheet.jog', 'sheet.tab', 'sheet.roll', 'sheet.cone'] },
   { title: 'Modify', priority: HIGH, items: ['sheet.cut', 'sheet.relief', 'sheet.bend', 'sheet.corner', 'sheet.rip'] },
   { title: 'Unfold', priority: HIGH, items: ['sheet.unfold', 'sheet.refold'] },
   { title: 'Form', priority: LOW, items: ['sheet.form', 'sheet.formTools'] },

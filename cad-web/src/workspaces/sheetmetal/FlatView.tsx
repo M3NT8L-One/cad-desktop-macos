@@ -70,6 +70,17 @@ export default function FlatView({ flat, compact }: { flat: Flat; compact?: bool
 }
 
 function BendLine({ bend, map, stroke, hovered }: { bend: FlatBend; map: (p: XY) => XY; stroke: number; hovered: boolean }) {
+  if (bend.type === 'arc' && bend.center && bend.midpoint && bend.radius_mm_curve) {
+    const points = pointsOf({ type: 'arc', center: bend.center, radius_mm: bend.radius_mm_curve, start: bend.start, end: bend.end, midpoint: bend.midpoint }).map(map);
+    const d = points.length ? `M${points.map(([x, y]) => `${x.toFixed(3)} ${y.toFixed(3)}`).join('L')}` : '';
+    return (
+      <g className={styles.bend} data-direction={bend.direction} data-hover={hovered || undefined} data-bend={bend.id}
+        onPointerEnter={() => hoverBend(bend.id)} onPointerLeave={() => hoverBend(null)} onClick={() => selectBend(bend.id)}>
+        <title>{`${bend.id}: cone sector ${num(bend.angle_deg, 1)}°`}</title>
+        <path d={d} fill="none" strokeWidth={stroke * (hovered ? 2.2 : 1.4)} strokeDasharray={`${stroke * 8} ${stroke * 5}`} />
+      </g>
+    );
+  }
   const [a, b] = [map(bend.start), map(bend.end)];
   const length = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
   const n: XY = [-(b[1] - a[1]) / length * bend.allowance_mm / 2, (b[0] - a[0]) / length * bend.allowance_mm / 2];

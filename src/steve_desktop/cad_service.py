@@ -177,15 +177,16 @@ class CadProject:
 
     def export(self, kind='STEP', expected_revision=None, cancel=None):
         kind = kind.upper()
-        if kind not in ('STEP', 'STL', '3MF'):
-            raise ValueError('Choose STEP, STL or 3MF.')
+        if kind not in ('STEP', 'STL', '3MF', 'DXF'):
+            raise ValueError('Choose STEP, STL, 3MF or DXF.')
         with self.lock:
             current = self.current()
             if not current or expected_revision != current['id']:
                 raise ValueError('Read the current revision before exporting.')
             target = self.folder / 'exports'
             target.mkdir(exist_ok=True)
-            filename = f'model-{current["id"]}.{kind.lower()}'
+            suffix = 'zip' if kind == 'DXF' else kind.lower()
+            filename = f'model-{current["id"]}.{suffix}'
             path = target / filename
             temporary = target / ('pending-' + filename)
             try:
@@ -193,7 +194,16 @@ class CadProject:
                 os.replace(temporary, path)
             finally:
                 temporary.unlink(missing_ok=True)
-            return {'revision': current['id'], 'format': kind, 'path': str(path), 'bytes': path.stat().st_size}
+            result = {'revision': current['id'], 'format': kind, 'path': str(path), 'bytes': path.stat().st_size}
+            if kind == 'DXF':
+                manifest = self.revision_folder(current['id']) / 'sheet-metal.json'
+                if manifest.exists():
+                    report = json.loads(manifest.read_text(encoding='utf-8'))
+                    result['bodies'] = [dict(id=body['id'], status=body['status'],
+                                              thickness_mm=body['rules']['thickness'], bend_count=len(body.get('bends') or []),
+                                              **({key: body['flat'][key] for key in ('bounds_mm', 'area_mm2') if key in body.get('flat', {})}))
+                                         for body in report.get('bodies', [])]
+            return result
 
 
 def cad_tools(folder, approve, activity):
@@ -234,7 +244,10 @@ def cad_tools(folder, approve, activity):
         return await run('cad_set_parameters', {'values': values, 'expected_revision': expected_revision}, project.parameters, values, expected_revision)
 
     async def cad_export(expected_revision: str, format: str = 'STEP') -> dict:
-        """Export CAD as STEP/STL/3MF, or Blender scenes as BLEND/GLB/MP4. Read the current revision first."""
+        """Export CAD as STEP/STL/3MF, a sheet-metal DXF zip, or Blender scenes as BLEND/GLB/MP4. Read the current revision first.
+
+        format "DXF" returns the existing flat-pattern archive (one DXF per sheet body, layers CUT, BEND_UP, BEND_DOWN and ROLL).
+        """
         return await run('cad_export', {'format': format, 'expected_revision': expected_revision}, project.export, format, expected_revision)
 
     async def blender_render(view: str = 'camera', animation: bool = False) -> dict:
@@ -271,14 +284,16 @@ def cad_tools(folder, approve, activity):
         return await asyncio.to_thread(project.restore, revision)
 
     def cad_api_reference(class_name: str = 'Model', method: str | None = None) -> dict:
-        """Read exact upstream CAD API signatures and documentation. Classes: Model, Sketch, Component, Design."""
+        """Read exact CAD API signatures and documentation. Classes: Model, Sketch, Component, Design, SheetMetal."""
         import ast
-        names = {'Model': 'model.py', 'Sketch': 'sketch.py', 'Component': 'design.py', 'Design': 'design.py'}
+        names = {'Model': ('model.py', 'Model'), 'Sketch': ('sketch.py', 'Sketch'), 'Component': ('design.py', 'Component'),
+                 'Design': ('design.py', 'Design'), 'SheetMetal': ('sheetmetal/__init__.py', 'SheetMetalMixin')}
         if class_name not in names:
-            return {'error': 'Choose Model, Sketch, Component or Design.'}
-        path = RESOURCE_ROOT / 'vendor' / 'steve' / names[class_name]
+            return {'error': 'Choose Model, Sketch, Component, Design or SheetMetal.'}
+        filename, cls_name = names[class_name]
+        path = RESOURCE_ROOT / 'vendor' / 'steve' / filename
         tree = ast.parse(path.read_text(encoding='utf-8'))
-        cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == class_name)
+        cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == cls_name)
         methods = [n for n in cls.body if isinstance(n, ast.FunctionDef) and not n.name.startswith('_')]
         if method:
             methods = [n for n in methods if n.name == method]

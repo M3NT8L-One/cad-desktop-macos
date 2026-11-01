@@ -55,6 +55,7 @@ export const BendTableIcon = make(<><rect x="3" y="4" width="18" height="16" rx=
 export const TabIcon = make(<><path d="M3 17 12 21l9-4-9-4Z" fill="currentColor" fillOpacity={0.12} /><path d="M9 15.6 13.5 17.6 13.5 9 9 7Z" fill="currentColor" fillOpacity={0.3} /></>, 'Tab');
 export const ReliefIcon = make(<><path d="M4 20V4h16v16Z" fill="currentColor" fillOpacity={0.12} /><path d="M20 9h-4a2 2 0 0 1-2-2V4" /></>, 'Relief');
 export const RollIcon = make(<><path d="M17 6.5A7 7 0 1 0 19 12" /><path d="M14.5 8.5A4 4 0 1 0 16 12" opacity={0.5} /></>, 'Roll');
+export const SheetConeIcon = make(<><path d="M12 19.5 5 8.5" /><path d="M12 19.5 19 8.5" /><path d="M6.2 11.2a8 8 0 0 0 11.6 0" /><path d="M8.4 14.6a5 5 0 0 0 7.2 0" opacity={0.55} /></>, 'SheetCone');
 export const FormToolIcon = make(<><path d="M3 15h5l2-4h4l2 4h5" /><path d="M3 18h18" opacity={0.5} /></>, 'FormTool');
 export const FormLibraryIcon = make(<><path d="M3 10h3.5l1.5-3h3l1.5 3H16" /><path d="M8 17h3.5l1.5-3h3l1.5 3H21" /><path d="M3 20h18" opacity={0.5} /></>, 'FormLibrary');
 export const JointIcon = make(<><circle cx="7" cy="17" r="3" /><circle cx="7" cy="17" r="0.9" fill="currentColor" /><path d="M9.2 15 18 6.5" /><path d="M15 4.5 20 9.5" /><path d="M4 21h6" opacity={0.6} /></>, 'Joint');

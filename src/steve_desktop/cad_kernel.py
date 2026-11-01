@@ -145,6 +145,21 @@ def export(folder, destination, kind):
     import cadquery as cq
     from cadquery import occ_compat
     occ_compat.enable()
+    if kind == 'DXF':
+        # The sheet-metal ZIP is the flat-pattern DXF (CUT, ROLL, BEND_UP, BEND_DOWN).
+        # A preview build writes the report and skips the ZIP, so a full build fills it in.
+        import shutil
+        folder = Path(folder)
+        archive = folder / 'sheet-metal.zip'
+        if not archive.exists():
+            document = json.loads((folder / 'document.json').read_text(encoding='utf-8'))
+            document['mode'] = 'full'
+            build(document, folder)
+            archive = folder / 'sheet-metal.zip'
+        if not archive.exists():
+            raise ValueError('This model has no sheet-metal flat pattern to export.')
+        shutil.copyfile(archive, destination)
+        return
     if kind == 'STEP' and (Path(folder) / 'assembly.step').exists():
         import shutil
         shutil.copyfile(Path(folder) / 'assembly.step', destination)
