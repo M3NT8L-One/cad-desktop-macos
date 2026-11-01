@@ -76,8 +76,12 @@ def pattern(sheet):
     for bend in sheet.bends:
         for index, segment in enumerate(sheet.bend_line(bend)):  # The drawing's flat view dimensions to these too.
             a, b = segment.startPoint(), segment.endPoint()
-            bends.append(dict(id=bend['id'], kind=bend.get('kind','bend'), segment=index, start=xy(a), end=xy(b), direction='up' if bend['angle_deg'] > 0 else 'down',
-                              angle_deg=abs(bend['angle_deg']), radius_mm=bend['radius_mm'], allowance_mm=bend['allowance_mm']))
+            item = dict(id=bend['id'], kind=bend.get('kind','bend'), segment=index, start=xy(a), end=xy(b), direction='up' if bend['angle_deg'] > 0 else 'down',
+                        angle_deg=abs(bend['angle_deg']), radius_mm=bend['radius_mm'], allowance_mm=bend['allowance_mm'])
+            if segment.geomType() == 'CIRCLE':
+                item.update(type='arc', center=xy(segment.arcCenter()), radius_mm_curve=segment.radius(),
+                            midpoint=xy(segment.positionAt(.5)))
+            bends.append(item)
     forms=[]
     from .geometry import place
     for form in sheet.forms:
@@ -89,6 +93,24 @@ def pattern(sheet):
                       perimeter_mm=sum(w.Length() for w in face.Wires()), outlines=loops, bends=bends,forms=forms)
 
 
+def _arc_dxf(bend):
+    """ezdxf arc from the sector mark. Angles are degrees, counter-clockwise from +X."""
+    import math
+    center, start, end, mid = bend['center'], bend['start'], bend['end'], bend['midpoint']
+
+    def turn(point):
+        return math.degrees(math.atan2(point[1] - center[1], point[0] - center[0])) % 360
+
+    start_angle, end_angle, mid_angle = turn(start), turn(end), turn(mid)
+    # The geometric edge may run either way. Keep the direction that passes through the midpoint.
+    def contains(begin, finish, probe):
+        span = (finish - begin) % 360
+        return ((probe - begin) % 360) <= span + 1e-6
+    if not contains(start_angle, end_angle, mid_angle):
+        start_angle, end_angle = end_angle, start_angle
+    return (center[0], center[1]), bend['radius_mm_curve'], start_angle, end_angle
+
+
 def dxf(sheet, path, include_forms=False):
     face, data = pattern(sheet)
     drawing = cq.exporters.DxfDocument(doc_units=4)  # DXF millimetres.
@@ -98,8 +120,13 @@ def dxf(sheet, path, include_forms=False):
     drawing.add_layer('ROLL', color=3)
     drawing.add_shape(cq.Workplane('XY').newObject([face]), 'CUT')
     for bend in data['bends']:
-        a, b = (*bend['start'], 0), (*bend['end'], 0)
-        drawing.msp.add_line(a, b, dxfattribs={'layer': 'ROLL' if bend['kind']=='roll' else 'BEND_' + bend['direction'].upper()})
+        layer = 'ROLL' if bend['kind'] in ('roll', 'cone') else 'BEND_' + bend['direction'].upper()
+        if bend.get('type') == 'arc':
+            center, radius, start_angle, end_angle = _arc_dxf(bend)
+            drawing.msp.add_arc(center, radius, start_angle, end_angle, dxfattribs={'layer': layer})
+        else:
+            a, b = (*bend['start'], 0), (*bend['end'], 0)
+            drawing.msp.add_line(a, b, dxfattribs={'layer': layer})
     if include_forms and sheet.forms:
         from .geometry import place
         drawing.add_layer('FORM_UP',color=6)

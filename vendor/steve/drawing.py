@@ -1331,16 +1331,38 @@ def _flat_pattern(drawing: Drawing, tolerance: float) -> tuple:
     outline = [[(p.x, p.y) for p in points] for edge in face.Edges() if (points := _edge_points(edge, tolerance))]
     lines, longest = [], {}
     for bend in data["bends"]:  # A bend a cut crosses has a line per piece; its note goes on the longest.
-        lines.append([tuple(bend["start"]), tuple(bend["end"])])
+        lines.append(_flat_bend_points(bend))
         length = math.dist(bend["start"], bend["end"])
         if length > longest.get(bend["id"], (0.0, None))[0]:
             longest[bend["id"]] = (length, bend)
     return outline, lines, [bend for _, bend in longest.values()], body, tuple(data["bounds_mm"])
 
 
+def _flat_bend_points(bend: dict) -> list:
+    """A brake line is its two ends. A rolled cone's ROLL mark is its mid-slant arc."""
+    if bend.get("type") != "arc":
+        return [tuple(bend["start"]), tuple(bend["end"])]
+    center, radius = bend["center"], bend["radius_mm_curve"]
+    start, end, mid = bend["start"], bend["end"], bend["midpoint"]
+
+    def turn(point):
+        return math.atan2(point[1] - center[1], point[0] - center[0])
+
+    a0, a1, am = turn(start), turn(end), turn(mid)
+    sweep = (a1 - a0) % (2 * math.pi)
+    if (am - a0) % (2 * math.pi) > sweep + 1e-6:
+        a0, a1 = a1, a0
+        sweep = (a1 - a0) % (2 * math.pi)
+    steps = max(8, int(math.degrees(sweep) / 5))
+    return [(center[0] + radius * math.cos(a0 + sweep * i / steps),
+             center[1] + radius * math.sin(a0 + sweep * i / steps)) for i in range(steps + 1)]
+
+
 def _bend_note(bend: dict, units: str) -> str:
     """A flat pattern's bend note as shop drawings write it: its direction, angle and inside radius (UP 90° R2); a
-    rolled sheet's ROLL."""
+    rolled sheet's ROLL. A smooth cone notes the sector angle."""
+    if bend.get("kind") == "cone":
+        return f"CONE {_figure(bend['angle_deg'], 'mm')}°"
     turn = "ROLL" if bend["kind"] == "roll" else bend["direction"].upper()
     return f"{turn} {_figure(bend['angle_deg'], 'mm')}° R{_length(bend['radius_mm'], units)}"
 

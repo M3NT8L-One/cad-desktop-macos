@@ -1,0 +1,313 @@
+"""Build a smooth or faceted cone sheet from the pure development in cone_math."""
+from __future__ import annotations
+
+import math
+
+import cadquery as cq
+from OCP.BRepPrimAPI import BRepPrimAPI_MakeRevol
+from OCP.gp import gp_Ax1, gp_Dir, gp_Pnt
+
+from ..naming import Names
+from .cone_math import ConeInputError, develop
+from .geometry import Panel, Sheet, TOL, frame, place, plane, prism
+from .validation import fail
+
+
+def _vector(values):
+    return cq.Vector(*values)
+
+
+def _plane_of(origin, x_axis, y_axis):
+    x = _vector(x_axis)
+    y = _vector(y_axis)
+    if x.Length < TOL or y.Length < TOL:
+        fail('A cone frame is degenerate.')
+    return cq.Plane(_vector(origin), xDir=x.normalized(), normal=x.cross(y).normalized())
+
+
+def _world(placement, point):
+    """Axis coordinates (axial, radial, curl) onto the sheet's placement plane."""
+    origin, x_axis, y_axis, z_axis = placement
+    return (origin[0] + x_axis[0] * point[0] + y_axis[0] * point[1] + z_axis[0] * point[2],
+            origin[1] + x_axis[1] * point[0] + y_axis[1] * point[1] + z_axis[1] * point[2],
+            origin[2] + x_axis[2] * point[0] + y_axis[2] * point[1] + z_axis[2] * point[2])
+
+
+def _placement(location):
+    """sheet_roll's plane: axis along X, seam along Y, positive sweep toward the normal."""
+    origin = location.origin
+    x_axis = location.xDir
+    z_axis = location.zDir
+    y_axis = z_axis.cross(x_axis)
+    return (tuple(origin.toTuple()), tuple(x_axis.toTuple()), tuple(y_axis.toTuple()), tuple(z_axis.toTuple()))
+
+
+def _polygon(points):
+    wire = cq.Wire.makePolygon([cq.Vector(x, y, 0) for x, y in points], close=True)
+    face = cq.Face.makeFromWires(wire)
+    if not face.isValid() or face.Area() <= TOL:
+        fail('A cone facet did not form a flat face.')
+    return face
+
+
+def _arc(radius, angle_deg):
+    if radius <= TOL:
+        return None
+    angle = math.radians(angle_deg)
+    mid = angle / 2
+
+    def point(turn):
+        return cq.Vector(radius * math.cos(turn), radius * math.sin(turn), 0)
+
+    return cq.Edge.makeThreePointArc(point(0), point(mid), point(angle))
+
+
+def sector_face(bend):
+    """Annular sector (or a pie when the inner radius vanishes) in the flat's XY plane."""
+    inner, outer = sorted(bend['sector_radius_mm'])
+    angle = bend['sector_angle_deg']
+    if angle <= TOL or outer <= TOL:
+        fail('The cone sector has no area.')
+    turn = math.radians(angle)
+    outer_arc = _arc(outer, angle)
+    end = cq.Vector(outer * math.cos(turn), outer * math.sin(turn), 0)
+    start = cq.Vector(outer, 0, 0)
+    if inner <= TOL:
+        wire = cq.Wire.assembleEdges([
+            cq.Edge.makeLine((0, 0, 0), start), outer_arc, cq.Edge.makeLine(end, (0, 0, 0))])
+    else:
+        inner_arc = cq.Edge.makeThreePointArc(
+            cq.Vector(inner * math.cos(turn), inner * math.sin(turn), 0),
+            cq.Vector(inner * math.cos(turn / 2), inner * math.sin(turn / 2), 0),
+            cq.Vector(inner, 0, 0))
+        wire = cq.Wire.assembleEdges([
+            outer_arc, cq.Edge.makeLine(end, cq.Vector(inner * math.cos(turn), inner * math.sin(turn), 0)),
+            inner_arc, cq.Edge.makeLine(cq.Vector(inner, 0, 0), start)])
+    face = cq.Face.makeFromWires(wire)
+    if not face.isValid():
+        fail('The cone flat pattern is not a valid sector.')
+    return face
+
+
+def sector_mark(bend):
+    """Mid-slant arc of a smooth cone, the ROLL mark."""
+    inner, outer = sorted(bend['sector_radius_mm'])
+    return _arc((inner + outer) / 2, bend['sector_angle_deg'])
+
+
+def _smooth_solid(bend, thickness):
+    start, end = bend['inside_radius_mm']
+    height = bend['height_mm']
+    slant = math.hypot(height, start - end)
+    offset = thickness * slant / height
+    points = [(0, start, 0), (height, end, 0), (height, end + offset, 0), (0, start + offset, 0)]
+    edges = [cq.Edge.makeLine(points[i], points[(i + 1) % 4]) for i in range(4)]
+    face = cq.Face.makeFromWires(cq.Wire.assembleEdges(edges))
+    maker = BRepPrimAPI_MakeRevol(face.wrapped, gp_Ax1(gp_Pnt(0, 0, 0), gp_Dir(1, 0, 0)), math.radians(bend['sweep_deg']))
+    if not maker.IsDone():
+        fail('Could not build the conical sheet.')
+    local = cq.Shape.cast(maker.Shape())
+    placed = place(local, frame(cq.Plane(_vector(bend['origin']), xDir=_vector(bend['axis']), normal=_vector(bend['normal']))))
+    names = Names()
+    identity = bend['id']
+    seams = []
+    axis = _vector(bend['axis'])
+    origin = _vector(bend['origin'])
+    for face in placed.Faces():
+        if face.geomType() == 'CONE':
+            names.add(f'{identity}.side', [face])
+            continue
+        normal = face.normalAt()
+        if abs(normal.dot(axis)) > 0.5:
+            station = (face.Center() - origin).dot(axis)
+            names.add(f'{identity}.start' if station < height / 2 else f'{identity}.end', [face])
+        else:
+            seams.append(face)
+    seams.sort(key=lambda face: (face.Center() - origin).dot(_vector(bend['outward'])))
+    for index, face in enumerate(seams):
+        names.add(f'{identity}.seam.{index}', [face])
+    return placed, names
+
+
+def smooth_piece(sheet, bend, flat):
+    if flat:
+        data = sheet.unfolded_frame(bend['flat'])
+        face = place(sector_face(bend), data)
+        shape, names = prism(face, -plane(data).zDir * sheet.rules.thickness, bend['id'], ['start', 'outer', 'end', 'inner'])
+        return shape, names
+    return _smooth_solid(bend, sheet.rules.thickness)
+
+
+def _map_frame(local_points, world_points):
+    """Rigid map sending the local polygon onto the world polygon, as a plane frame."""
+    source = local_points[0], local_points[1], local_points[3]
+    target = world_points[0], world_points[1], world_points[3]
+    base = source[0]
+    vx = (source[1][0] - base[0], source[1][1] - base[1])
+    vy = (source[2][0] - base[0], source[2][1] - base[1])
+    determinant = vx[0] * vy[1] - vx[1] * vy[0]
+    if abs(determinant) <= TOL:
+        fail('A cone facet is degenerate.')
+    # Images of local (1, 0) and (0, 1).
+    wx = tuple(target[1][i] - target[0][i] for i in range(len(target[0])))
+    wy = tuple(target[2][i] - target[0][i] for i in range(len(target[0])))
+
+    def combine(a, b):
+        return tuple(a * wx[i] + b * wy[i] for i in range(len(wx)))
+
+    x_axis = combine(vy[1] / determinant, -vx[1] / determinant)
+    y_axis = combine(-vy[0] / determinant, vx[0] / determinant)
+    origin = tuple(target[0][i] - (x_axis[i] * base[0] + y_axis[i] * base[1]) for i in range(len(wx)))
+    return _plane_of(origin, x_axis, y_axis)
+
+
+def _public_development(spec):
+    """Numbers only, with lists instead of tuples, so a saved sheet record stays JSON."""
+    def convert(value):
+        if isinstance(value, tuple):
+            return [convert(item) for item in value]
+        if isinstance(value, dict):
+            return {key: convert(item) for key, item in value.items()}
+        return value
+    return convert({key: value for key, value in spec.items() if not key.startswith('_')})
+
+
+def build_sheet(identity, feature_id, rules, location, spec):
+    """A ``Sheet`` for one smooth or faceted cone. ``spec`` is ``cone_math.develop``."""
+    placement = _placement(location)
+    if spec['kind'] == 'cone':
+        return _smooth_sheet(identity, feature_id, rules, placement, spec)
+    return _faceted_sheet(identity, feature_id, rules, placement, spec)
+
+
+def _smooth_sheet(identity, feature_id, rules, placement, spec):
+    origin, x_axis, y_axis, z_axis = placement
+    inner, outer = sorted(spec['sector_radius_mm'])
+    bend = dict(id=feature_id, parent=None, child=None, edge_index=None, kind='cone',
+                angle_deg=spec['sector_angle_deg'], radius_mm=max(spec['neutral_radius_mm']),
+                k_factor=spec['k_factor'], allowance_mm=spec['large_arc_mm'], allowance_method='neutral_cone',
+                width_mm=abs(outer - inner), straight_length_mm=0, sweep_deg=spec['sweep_deg'],
+                sector_angle_deg=spec['sector_angle_deg'], sector_radius_mm=list(spec['sector_radius_mm']),
+                inside_radius_mm=list(spec['inside_radius_mm']), height_mm=spec['height_mm'],
+                origin=list(origin), axis=list(x_axis), outward=list(y_axis), normal=list(z_axis),
+                flat=frame(cq.Plane.XY()))
+    sheet = Sheet(identity, rules, feature_id, {}, bends=[bend], reference=frame(
+        cq.Plane(_vector(origin), xDir=_vector(x_axis), normal=_vector(z_axis))))
+    sheet.development = _public_development(spec)
+    return sheet
+
+
+def _faceted_sheet(identity, feature_id, rules, placement, spec):
+    layout = spec['_layout']
+    panels = {}
+    bends = []
+    root = None
+    for index, local in enumerate(layout['facets_local']):
+        panel_id = feature_id if index == 0 else f'{feature_id}.{index + 1}'
+        root = root or panel_id
+        solid = tuple(_world(placement, point) for point in layout['solids'][index])
+        flat_world = tuple((point[0], point[1], 0.0) for point in layout['facets_world'][index])
+        local_face = local
+        folded = _map_frame(local_face, solid)
+        # The face is the inside surface. Material is extruded opposite the frame
+        # normal, so that normal has to point toward the axis. Mirroring local Y
+        # flips the normal; both frames are refit so the face stays on its quad.
+        if folded.zDir.dot(_vector(_toward_axis(solid, placement))) < 0:
+            local_face = tuple((point[0], -point[1]) for point in local)
+            folded = _map_frame(local_face, solid)
+        flat_plane = _map_frame(local_face, flat_world)
+        panels[panel_id] = Panel(panel_id, _polygon(local_face), ['start', 'right', 'end', 'left'], frame(folded), frame(flat_plane))
+    panel_ids = list(panels)
+    for index, bend in enumerate(layout['bends_world']):
+        parent, child = panel_ids[index], panel_ids[index + 1]
+        corners = bend['corners']
+        # The allowance rectangle is counter-clockwise in its frame, so the frame
+        # normal has to point up (+Z). Reverse the edge when the raw corner order
+        # would point the normal down; the shared edge is the same line.
+        x_axis = _unit2d(_sub2(corners[1], corners[0]))
+        y_axis = _unit2d(_sub2(corners[3], corners[0]))
+        origin = corners[0]
+        if x_axis[0] * y_axis[1] - x_axis[1] * y_axis[0] < 0:
+            origin = corners[1]
+            x_axis = _unit2d(_sub2(corners[0], corners[1]))
+            y_axis = _unit2d(_sub2(corners[2], corners[1]))
+        flat_plane = _plane_of((origin[0], origin[1], 0), (*x_axis, 0), (*y_axis, 0))
+        start = layout['solids'][index][1]
+        end = layout['solids'][index][2]
+        origin = _world(placement, start)
+        axis = _unit3d(_sub3(end, start))
+        width = math.dist(start, end)
+        outward, normal = _bend_directions(layout['solids'][index], placement)
+        bends.append(dict(id=f'{feature_id}.b{index + 1}', parent=parent, child=child, edge_index=1,
+                          kind='bend', angle_deg=bend['angle_deg'], radius_mm=layout['bend_radius_mm'],
+                          k_factor=spec['k_factor'], allowance_mm=bend['allowance_mm'], allowance_method='k_factor',
+                          width_mm=width, straight_length_mm=layout['face_height_mm'],
+                          origin=list(origin), axis=list(axis), outward=list(outward), normal=list(normal),
+                          flat=frame(flat_plane)))
+    sheet = Sheet(identity, rules, root, panels, bends=bends, reference=frame(
+        cq.Plane(_vector(placement[0]), xDir=_vector(placement[1]), normal=_vector(placement[3]))))
+    sheet.development = _public_development(spec)
+    return sheet
+
+
+def _sub2(a, b):
+    return (a[0] - b[0], a[1] - b[1])
+
+
+def _unit2d(vector):
+    scale = math.hypot(*vector)
+    return (vector[0] / scale, vector[1] / scale)
+
+
+def _sub3(a, b):
+    return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+
+def _unit3d(vector):
+    scale = math.sqrt(sum(component * component for component in vector))
+    return tuple(component / scale for component in vector)
+
+
+def _toward_axis(quad, placement):
+    """World-space direction from the facet center toward the cone axis."""
+    origin, axis = placement[0], placement[1]
+    center = tuple(sum(point[axis_index] for point in quad) / len(quad) for axis_index in range(3))
+    relative = tuple(center[i] - origin[i] for i in range(3))
+    along = sum(relative[i] * axis[i] for i in range(3))
+    radial = tuple(relative[i] - axis[i] * along for i in range(3))
+    return tuple(-component for component in radial)
+
+
+def _bend_directions(quad, placement):
+    """Inside-face tangent direction leaving the parent, and the parent normal."""
+    world = [_world(placement, point) for point in quad]
+    edge = _sub3(world[2], world[1])
+    axis = _unit3d(edge)
+    mid = tuple((world[1][i] + world[2][i]) / 2 for i in range(3))
+    center = tuple(sum(point[i] for point in world) / 4 for i in range(3))
+    inward = _sub3(center, mid)
+    along = sum(inward[i] * axis[i] for i in range(3))
+    inward = tuple(inward[i] - axis[i] * along for i in range(3))
+    outward = _unit3d(tuple(-component for component in inward))
+    span_a = _sub3(world[1], world[0])
+    span_b = _sub3(world[3], world[0])
+    normal = _unit3d((span_a[1] * span_b[2] - span_a[2] * span_b[1],
+                      span_a[2] * span_b[0] - span_a[0] * span_b[2],
+                      span_a[0] * span_b[1] - span_a[1] * span_b[0]))
+    # Positive bends curl toward the sheet normal. Point it so the inside of the
+    # bend faces the cone axis (the same side as the inward radial).
+    toward_axis = _toward_axis(world, placement)
+    if sum(normal[i] * toward_axis[i] for i in range(3)) < 0:
+        normal = tuple(-component for component in normal)
+    return outward, normal
+
+
+def sheet_from_call(identity, feature_id, rules, location, radius1, radius2, height, slant, angle,
+                    radius_reference, weld_gap_in, facets):
+    try:
+        spec = develop(radius1, radius2, rules.thickness, rules.k_factor, height=height, slant=slant, angle=angle,
+                       radius_reference=radius_reference, weld_gap_in=weld_gap_in, facets=facets,
+                       bend_radius=rules.radius)
+    except ConeInputError as error:
+        fail(str(error))
+    return build_sheet(identity, feature_id, rules, location, spec)

@@ -253,12 +253,14 @@ class Sheet:
     reference: list | None = None  # Tangent plane for a pure cylindrical roll.
     rips: list[dict] = field(default_factory=list)
     forms: list = field(default_factory=list)
+    development: dict | None = None  # Cone/frustum flat-pattern numbers, when this body is one.
 
     def record(self):
         return dict(version=VERSION, id=self.id, rules=self.rules.record(), root=self.root,
                     panels={key: item.record() for key, item in self.panels.items()},
                     bends=self.bends, state=self.state, names=self.names, fixed=self.fixed, reference=self.reference,rips=self.rips,
-                    forms=[f.record() for f in self.forms])
+                    forms=[f.record() for f in self.forms],
+                    **({'development': self.development} if self.development else {}))
 
     @classmethod
     def restore(cls, data, owner_shape=None):
@@ -269,7 +271,7 @@ class Sheet:
                    panels={key: Panel.restore(item) for key, item in data['panels'].items()},
                    bends=data['bends'], state=data['state'], names=data['names'],
                    owner_shape=owner_shape if data.get('valid', True) else None, fixed=data.get('fixed'), reference=data.get('reference'),rips=data.get('rips',[]),
-                   forms=[Form.restore(f) for f in data.get('forms',[])])
+                   forms=[Form.restore(f) for f in data.get('forms',[])], development=data.get('development'))
 
     def clone(self):
         return Sheet.restore(copy.deepcopy(self.record()))
@@ -472,6 +474,9 @@ class Sheet:
         return pairs
 
     def bend_face(self, bend):
+        if bend.get('kind') == 'cone':
+            from .cone_build import sector_face
+            return sector_face(bend)
         face = rectangle(bend['width_mm'], bend['allowance_mm'])
         for cut in bend.get('cuts', []):
             x0, y0, x1, y1 = cut['bounds']
@@ -479,6 +484,9 @@ class Sheet:
         return face
 
     def bend_piece(self, bend, flat=False):
+        if bend.get('kind') == 'cone':
+            from .cone_build import smooth_piece
+            return smooth_piece(self, bend, flat)
         identity = bend['id'] + '.bend'
         if flat:
             data = self.unfolded_frame(bend['flat'])
@@ -569,7 +577,11 @@ class Sheet:
 
     def bend_line(self, bend):
         """A bend's centre line on the developed blank (the middle of its allowance, where it's marked and gauged), as
-        the DXF draws it: its pieces in order along it (a cut across the bend leaves several), in flat_face's frame."""
+        the DXF draws it: its pieces in order along it (a cut across the bend leaves several), in flat_face's frame.
+        A rolled cone's mark is the mid-slant arc, not a straight brake line."""
+        if bend.get('kind') == 'cone':
+            from .cone_build import sector_mark
+            return [sector_mark(bend)]
         line = cq.Edge.makeLine((0,bend['allowance_mm']/2,0),(bend['width_mm'],bend['allowance_mm']/2,0))
         segments = sorted(line.intersect(self.bend_face(bend)).Edges(), key=lambda e:e.Center().x)
         return [place(segment, bend['flat']) for segment in segments]
@@ -603,4 +615,5 @@ class Sheet:
     def report(self):
         return dict(version=VERSION, body=self.id, units='mm', state=self.state, root=self.root, fixed=self.fixed or self.root,
                     rules=self.rules.record(), panels=[dict(id=p.id, folded=p.folded, flat=p.flat, active=self.panel_frame(p)) for p in self.panels.values()],
-                    bends=self.bends,rips=self.rips,forms=[f.report() for f in self.forms])
+                    bends=self.bends,rips=self.rips,forms=[f.report() for f in self.forms],
+                    **({'development': self.development} if self.development else {}))

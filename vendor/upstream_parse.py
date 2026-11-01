@@ -34,7 +34,7 @@ FEATURE_KINDS = {"plane", "axis", "extrude", "revolve", "sweep", "loft", "fillet
 FEATURE_KINDS.update({"sheet_base", "sheet_flange", "sheet_hem", "sheet_jog", "sheet_cut", "sheet_relief", "sheet_unfold", "sheet_refold"})
 FEATURE_KINDS.update({"sheet_convert", "sheet_contour", "sheet_bend", "sheet_roll", "sheet_tab"})
 FEATURE_KINDS.add("sheet_corner")
-FEATURE_KINDS.update({"sheet_rip", "sheet_form"})
+FEATURE_KINDS.update({"sheet_rip", "sheet_form", "sheet_cone"})
 FEATURE_KINDS.update({"fill", "boundary_surface", "solidify"})  # Surface bodies (thicken is above).
 FEATURE_KINDS.add("boundary_fill")
 
