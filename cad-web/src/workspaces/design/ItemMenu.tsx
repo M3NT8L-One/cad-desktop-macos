@@ -32,7 +32,7 @@ import { deselectBodies, setBodiesShown, setPlanesShown, setSketchesShown, sketc
 import { behindLinks, refreshLinks, updateLinks } from '@/state/linkWatch';
 import { linkTrashed } from '@/lib/trash';
 import { restoreFromTrash } from '@/state/trash';
-import { filesOf, MAIN, PARAMS, withoutComponent } from '@/state/design';
+import { MAIN, PARAMS } from '@/state/design';
 import { availability, command as commandOf, runCommand } from '@/commands';
 import { ADD_PARAMETER, usage } from '@/modeling/ParametersTable';
 import { checkExpression, checkName, checkParameterName, deleteParameter, renameBody, renameFeature, renameParameter, setParameterValue } from '@/modeling/rename';
@@ -315,14 +315,10 @@ function deleteLegacyPlane(plane: ConstructionPlane) {
   void updateModel();
 }
 
-/** Deletes a component's file, import and placements; greyed out while something else still uses it. */
+/** Deletes a component file as a saved revision. The server refuses a real use; Delete anyway is the human override. */
 function deleteComponentEntry(target: Extract<ItemTarget, { kind: 'component' }>, state: AppState): Entry {
-  const check = withoutComponent(filesOf(state.doc), target.path, target.id);
-  const reason = state.busy ? BUSY : 'users' in check ? `Used in ${check.users.join(', ')}: remove those uses first.` : null;
-  return { label: 'Delete component', icon: <Trash2 {...I} />, danger: true, reason, run: () => {
-    const done = removeComponent(target.path, target.id);
-    if (done !== true) toast('warning', `${target.name} is in use`, done);
-  } };
+  return { label: 'Delete component', icon: <Trash2 {...I} />, danger: true, reason: state.busy ? BUSY : null,
+    run: () => { void removeComponent(target.path); } };
 }
 
 /* ───────── Menus ───────── */

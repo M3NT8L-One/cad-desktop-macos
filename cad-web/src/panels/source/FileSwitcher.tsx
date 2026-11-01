@@ -9,9 +9,9 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Box, ChevronDown, ChevronRight, FileCode, FileCog, Image as ImageIcon, Plus, Search, SlidersHorizontal, Table2 } from 'lucide-react';
+import { Box, ChevronDown, ChevronRight, FileCode, FileCog, Image as ImageIcon, Plus, Search, SlidersHorizontal, Table2, Trash2 } from 'lucide-react';
 import { useApp } from '@/state/store';
-import { addComponent, importImage, importTable, openFile } from '@/state/actions';
+import { addComponent, importImage, importTable, openFile, removeComponent } from '@/state/actions';
 import { fileLabel, filesOf, hasFiles, isImage, isTable, MAIN, PARAMS } from '@/state/design';
 import styles from '../SourcePanel.module.css';
 
@@ -105,13 +105,23 @@ export default function FileSwitcher({ open, onOpenChange, showName = true }: { 
                     {items.map((entry) => {
                       const index = shown.indexOf(entry);
                       const ItemIcon = iconOf(entry.path);
+                      const componentFile = group === 'Components' && entry.path.startsWith('components/') && entry.path.endsWith('.py');
                       return (
-                        <button key={entry.path} type="button" role="option" aria-selected={index === active} data-file={entry.path}
-                          className={styles.fileOption} data-active={index === active || undefined} data-current={entry.path === doc.activeFile || undefined}
-                          title={isImage(entry.path) ? LOGO_HINT(entry.path) : undefined}
-                          onMouseEnter={() => setActive(index)} onClick={() => choose(entry.path)}>
-                          <ItemIcon size={13} /><span className={styles.fileOptionLabel}>{entry.label}</span><span className={styles.fileOptionPath}>{entry.path}</span>
-                        </button>
+                        <div key={entry.path} className={styles.fileRow}>
+                          <button type="button" role="option" aria-selected={index === active} data-file={entry.path}
+                            className={styles.fileOption} data-active={index === active || undefined} data-current={entry.path === doc.activeFile || undefined}
+                            title={isImage(entry.path) ? LOGO_HINT(entry.path) : undefined}
+                            onMouseEnter={() => setActive(index)} onClick={() => choose(entry.path)}>
+                            <ItemIcon size={13} /><span className={styles.fileOptionLabel}>{entry.label}</span><span className={styles.fileOptionPath}>{entry.path}</span>
+                          </button>
+                          {componentFile && (
+                            <button type="button" className={styles.fileDelete} data-delete-file={entry.path} aria-label={`Delete ${entry.label}`}
+                              title={`Delete ${entry.label}`} onMouseEnter={() => setActive(index)}
+                              onClick={() => { void removeComponent(entry.path).then((done) => { if (done === true) onOpenChange(false); }); }}>
+                              <Trash2 size={12} />
+                            </button>
+                          )}
+                        </div>
                       );
                     })}
                   </div>

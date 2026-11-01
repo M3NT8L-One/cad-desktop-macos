@@ -1,10 +1,10 @@
 # Part and component delete
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Let a project drop a saved part or design, and drop a component file inside a design, including an empty `components/*.py` that nothing else can remove today.
 
-**Architecture:** One server module owns both operations. Document delete stays the existing soft trash and gains the permanent purge the UI already calls. Component-file delete is a new saved revision of that design, not a second trash. The desktop UI and a new MCP tool both call the same functions.
+**Architecture:** One server module owns both operations. Document delete stays the existing soft trash and gains the permanent purge the Trash screen already calls. Component-file delete is a new saved revision of that design, not a second trash. The desktop UI and `cad_delete` share the file-removal and trash/restore functions. Purge and empty-trash are human actions only.
 
 **Tech Stack:** Local catalog in `src/steve_desktop` (FastAPI), design UI in `cad-web`, MCP tools in `cad_tools`.
 
@@ -43,11 +43,11 @@ Create, rename, and edit today:
 - Create a part or design: `POST /v1/documents` (`create_document`). Create a component: UI only, `addComponent` → `withComponent` in `cad-web/src/state/design.ts` (writes `components/<id>.py`, an import, and `design.add`).
 - Rename a part or design: `renameDocument` in `cad-web/src/lib/library.ts` does `PUT /v1/documents/{id}` and bumps the revision. `POST /v1/files/{id}/rename` is not implemented on this server.
 - Edit source: the editor, then `PUT` on save, or MCP `cad_build` (`cad_service.py`), which replaces the open document when the build succeeds.
-- MCP tools today (`cad_tools`): `cad_read`, `cad_inspect`, `cad_build`, `cad_set_parameters`, `cad_export`, `cad_revisions`, `cad_restore`, `cad_api_reference`, `cad_source_package`, `cad_import_package`, `cad_find_parts`, `cad_import_catalog_part`, `blender_render`. No list, create, rename, or delete.
+- MCP tools (`cad_tools`): `cad_read`, `cad_inspect`, `cad_build`, `cad_set_parameters`, `cad_export`, `cad_revisions`, `cad_restore`, `cad_api_reference`, `cad_source_package`, `cad_import_package`, `cad_find_parts`, `cad_import_catalog_part`, `blender_render`, and `cad_delete` (`trash`, `restore`, `remove_file` only).
 
 What already deletes, and why empty component files stay:
 
-- Parts and designs can move to the Trash from File → Open (`cad-web/src/state/trash.ts` → `POST /v1/trash`). Undo is a 9s toast (`UNDO_MS`) plus Trash → Restore. Permanent delete is not implemented: the UI calls `POST /v1/trash/purge` and `POST /v1/trash/empty` (`cad-web/src/lib/trash.ts`) and this server has neither route.
+- Parts and designs move to the Trash from File → Open (`cad-web/src/state/trash.ts` → `POST /v1/trash`). Undo is a 9s toast (`UNDO_MS`) plus Trash → Restore. Permanent delete is `POST /v1/trash/purge` and `POST /v1/trash/empty` (`cad-web/src/lib/trash.ts`), used only by the Trash screen. A live link skips the document. There is no force-purge.
 - A component row has "Delete component" (`ItemMenu.tsx`, `removeComponent` in `actions.ts`). It only rewrites the in-memory draft. It does not `PUT` a new revision. The file switcher (`FileSwitcher.tsx`) can add a component and cannot delete one.
 - `withoutComponent` (`design.ts`) strips a single-line `from components.<id> import …` and a single-line `.add(name)`. Any other hit of that word, including `design.pattern`, a joint, or the same name in another component file, disables the command. Two empty hardware files that import each other can never be deleted, because each is the other's "user". A batch delete does not exist.
 - `removeComponent` then calls `updateModel`. That returns without building when `hasContent` is false (`store.ts`), and a finished preview only calls `saveDraft`, not `saveDocument`. Git export reads the catalog, so a draft-only delete is still pushed.
@@ -73,8 +73,8 @@ The new finder parses Python with `ast`. It does not search for the component's 
 **Referenced: refuse, warn, or force.** Recommendation: warn, then refuse, with an explicit force.
 
 - Trash of a document: warn when `references()` is non-empty (the Open dialog already does this) and still trash. Pinned revisions keep building. Do not change this.
-- Purge: refuse when any non-trashed document links this id. Return that list in `skipped`, which `TrashView` already renders. `force` is MCP-only and purges anyway; those links then look missing (`latest: null`). Do not edit the linking design.
-- One component file: refuse when a reference remains after its import and placements are ignored. The response lists file and line. The menu shows that list and "Delete anyway" (`force`). Force still strips the import and the placements, deletes the file, and returns the leftover lines as `warnings`. It does not rewrite joints and does not edit other documents. A file that is only placed with `design.add` or `design.pattern` is not a refusal; those calls are placements and are removed with the file.
+- Purge: human only (`POST /v1/trash/purge` and `POST /v1/trash/empty`, which the Trash screen already calls). Refuse when any non-trashed document links this id. Return that list in `skipped`, which `TrashView` already renders. There is no force-purge. A `force` field on those routes is ignored. Do not edit the linking design.
+- One component file: refuse when a reference remains after its import and placements are ignored. The response lists file and line. The menu and the file switcher show that list and "Delete anyway" (`force` on the HTTP route only). Force still strips the import and the placements, deletes the file, and returns the leftover lines as `warnings`. It does not rewrite joints and does not edit other documents. A file that is only placed with `design.add` or `design.pattern` is not a refusal; those calls are placements and are removed with the file. `cad_delete` has no force parameter.
 - Several component files in one call: a reference that lives only in another path in the same call does not count. That is what removes a set of empty hardware files that only mention each other.
 
 **Empty files.** Recommendation: same operation as any other `components/*.py`. Empty means the text is blank, or it is only comments, imports, and a `Component(...)` assignment with no feature calls. If the only mentions are its import and placements, delete with no dialog. Do not call the geometry builder. `hasContent` must not be on this path.
@@ -99,9 +99,9 @@ Out of scope: `params.py`, `main.py`, tables, logos, helper modules, feature-lev
 
 **Produces:**
 
-- `delete_files(server, document_id, paths, revision, force=False, code=None, files=None) -> dict`
-- `purge_documents(server, ids, force=False) -> dict`
-- `empty_trash(server, force=False) -> dict`
+- `delete_files(server, document_id, paths, revision, force=False, code=None, files=None) -> dict` (`force` is the human Delete-anyway path)
+- `purge_documents(server, ids) -> dict` (no force argument)
+- `empty_trash(server) -> dict`
 
 `delete_files` accepts only existing keys under `components/` ending in `.py` that pass the path checks in `cad_document.validate`. Base source is the saved document, or `code`/`files` when the client sends its unsaved editor state. `revision` must equal the saved integer revision or the result is HTTP 409 and no write. If this document is the open one, the live context fingerprint differs from the saved source, and the body did not send `code`/`files`, return 409 and do not write.
 
@@ -110,12 +110,12 @@ Success returns `{document, removed, warnings, references}` and has called `upda
 Wire:
 
 - `POST /v1/documents/{id}/files/delete` with `{paths, revision, force, code?, files?}`
-- `POST /v1/trash/purge` with `{ids, force?}` → `{purged: [{id, name}], skipped: [{id, name, reason, references?}]}`
-- `POST /v1/trash/empty` with the same response. Default `force` is false, matching `Trash.purge` / `Trash.empty`.
+- `POST /v1/trash/purge` with `{ids}` → `{purged: [{id, name}], skipped: [{id, name, reason, references?}]}`. A live link skips the document.
+- `POST /v1/trash/empty` with the same response. These two routes are what the Trash screen calls. They are not MCP tools.
 
-- [ ] **Step 1:** Add `tests/test_cad_delete.py` covering the cases in the test plan below. Run `PYTHONPATH=src python -m unittest tests.test_cad_delete -v` and confirm failure.
-- [ ] **Step 2:** Implement `cad_delete.py` and the three routes. Re-run that module and confirm pass.
-- [ ] **Step 3:** Commit the server change.
+- [x] **Step 1:** Add `tests/test_cad_delete.py` covering the cases in the test plan below. Run `PYTHONPATH=src python -m unittest tests.test_cad_delete -v` and confirm failure.
+- [x] **Step 2:** Implement `cad_delete.py` and the three routes. Re-run that module and confirm pass.
+- [x] **Step 3:** Commit the server change.
 
 ### Task 2: Git export follows trash and purged files
 
@@ -124,40 +124,38 @@ Wire:
 - Modify: `src/steve_desktop/local_git.py` (`export_sources`)
 - Test: `tests/test_cad_delete.py` (no network; call `export_sources` with a temp repo and `subprocess` patched, as `tests/test_launch_services.py` does)
 
-- [ ] **Step 1:** Assert a trashed document is omitted and a removed component path is unlinked from `owned_files`.
-- [ ] **Step 2:** Implement the skip and the empty-directory removal. Confirm the test passes.
-- [ ] **Step 3:** Commit.
+- [x] **Step 1:** Assert a trashed document is omitted and a removed component path is unlinked from `owned_files`.
+- [x] **Step 2:** Implement the skip and the empty-directory removal. Confirm the test passes.
+- [x] **Step 3:** Commit.
 
 ### Task 3: MCP tool `cad_delete`
 
 **Files:**
 
 - Modify: `src/steve_desktop/cad_service.py` (`cad_tools`)
-- Modify: `src/steve_desktop/runtime.py` (one sentence in the CAD tool instructions: use `cad_delete` to trash, purge, or remove a component file; do not claim a file is gone unless the tool result says so)
+- Modify: `src/steve_desktop/runtime.py` (one sentence: `cad_delete` trashes, restores, or removes a component file; it cannot purge; do not claim a file is gone unless the tool result says so)
 - Test: `tests/test_cad_delete.py` calls the tool function. Extend `tests/test_local_mcp.py` only if the tool list assertion needs the new name.
 
 **Signature:**
 
 ```python
 def cad_delete(
-    target: str,                  # "document" | "file"
+    mode: Literal['trash', 'restore', 'remove_file'],
     document_id: str | None = None,
-    path: str | None = None,      # one component file
+    path: str | None = None,
     paths: list[str] | None = None,
     expected_revision: int | None = None,
-    mode: str = "trash",          # document: "trash" | "purge" | "restore"; ignored for file
-    force: bool = False,
 ) -> dict:
 ```
 
-`document_id` defaults to the open document. File mode requires `expected_revision` (the integer catalog revision). Document `trash` and `restore` delegate to the existing handlers. Errors are returned as data, same as `cad_build`, not raised, except the functions they call already raise `HTTPException` which the tool catches into `error`.
+`mode` is only `trash`, `restore`, or `remove_file`. The schema has no `purge`, `empty`, `empty_trash`, or `force` parameter. `remove_file` always refuses while a real use remains; files named in the same request do not count as uses of each other. `document_id` defaults to the open document. `remove_file` requires `expected_revision` (the integer catalog revision). Errors are returned as data. A `mode` of `purge` or `empty_trash` is rejected by the schema and, if called anyway, returns `ok: false` without writing.
 
 **Return:**
 
 ```python
 {
   "ok": bool,
-  "action": "trashed" | "purged" | "restored" | "file_removed" | "refused",
+  "action": "trashed" | "restored" | "file_removed" | "refused",
   "document_id": str | None,
   "revision": int | None,       # new revision after a file delete; unchanged for trash
   "removed": list[str],         # document ids or component paths
@@ -169,9 +167,9 @@ def cad_delete(
 
 Refusal is `ok: false`, `action: "refused"`, `references` filled, catalog unchanged.
 
-- [ ] **Step 1:** Test refuse-then-force for one empty referenced file, and trash of a part, through the tool function.
-- [ ] **Step 2:** Register `cad_delete` on the toolset. Re-run `tests.test_cad_delete` and `tests.test_local_mcp`.
-- [ ] **Step 3:** Commit.
+- [x] **Step 1:** Test that `remove_file` refuses a joint, that `trash` and `restore` round-trip, and that a purge or empty-trash call is rejected with none of those parameters in the schema.
+- [x] **Step 2:** Register `cad_delete` on the toolset. Re-run `tests.test_cad_delete` and `tests.test_local_mcp`.
+- [x] **Step 3:** Commit.
 
 ### Task 4: UI
 
@@ -186,9 +184,9 @@ Empty and unreferenced: no dialog, toast with Undo. Referenced: dialog listing t
 
 No new Trash screen. Purge and empty-trash start working because Task 1 adds the routes `TrashView` already calls.
 
-- [ ] **Step 1:** Point `removeComponent` at the route and add the switcher control.
-- [ ] **Step 2:** There is no frontend unit runner in this repo. Verify by API tests plus a manual pass: delete an empty `components/*.py` from the tree and from the file switcher, undo from the toast, and permanently empty a trashed part.
-- [ ] **Step 3:** Commit.
+- [x] **Step 1:** Point `removeComponent` at the route and add the switcher control.
+- [x] **Step 2:** There is no frontend unit runner in this repo. Verify by API tests plus a manual pass: delete an empty `components/*.py` from the tree and from the file switcher, undo from the toast, and permanently empty a trashed part.
+- [x] **Step 3:** Commit.
 
 ## Test plan
 
@@ -198,18 +196,22 @@ Run `PYTHONPATH=src python -m unittest tests.test_cad_delete tests.test_cad_link
 
 1. Trash still hides a part from `GET /v1/documents`, and restore brings it back (do not regress `tests/test_cad_local.py`).
 2. `POST /v1/trash/purge` removes the record and `history`. A second purge skips it. `POST /v1/trash/empty` purges only trashed ids.
-3. Purge of a linked part is skipped with a reference. `force` removes it. The linking design's `link_status.latest` is null, matching `tests/test_cad_links.py`.
+3. Purge of a linked part is skipped even when the body contains `force`. The part stays in the Trash and `link_status.trashed` stays true.
 4. Delete `components/screw.py` whose text is only `screw = Component("screw", name="Screw")`, with a one-line import and `design.add(screw)` in `main.py`. The key is gone, those lines are gone, `revision` is +1, and `history` still contains the file.
 5. The same for a zero-length `components/washer.py`.
 6. `components/nut.py` and `components/screw.py` import each other and have no other geometry. One call with both paths removes both. Deleting only one returns 422 and changes nothing.
 7. `design.pattern(screw, count=4, axis="Z")` on its own does not refuse: the file and the pattern call are both gone. Add a joint line that names `screw`: without `force`, 422 and that line number is in `references`; with `force`, the file and the pattern call are gone and the joint line is in `warnings`.
 8. Wrong `revision` returns 409 and the file is still there.
 9. Open document with a different unsaved context, and no `code`/`files` in the body, returns 409.
-10. `cad_delete(target="file", ...)` refuse then force. `cad_delete(target="document", mode="trash")` sets `deleted_at`.
+10. `cad_delete(mode="remove_file")` refuses a joint and does not delete. `mode="trash"` sets `deleted_at` without bumping the revision; `mode="restore"` clears it. `mode="purge"` and `mode="empty_trash"` are rejected. The tool schema has no `force`, `purge`, `empty`, or `empty_trash` parameter.
 11. Git export omits a trashed document and unlinks a removed component path. No `git push` is invoked.
+
+## Phase 2 decision
+
+Delete-forever is human-only. `cad_delete` exposes `trash`, `restore`, and `remove_file`. It does not purge, empty the Trash, or force a file removal. "Delete anyway" is the app UI, via `force` on `POST /v1/documents/{id}/files/delete`.
 
 ## Open questions
 
-- The six empty hardware files are not in this repository. The plan covers mutual imports, a `design.pattern` / joint mention, and a delete that never reaches the catalog. Phase 2 should replay the real files if they are available; the tests above are the stand-in.
-- Purge does not scrub source copies stored inside `builds`. Say if those copies must be deleted too.
-- Local history is main-only (`cad_documents.py` rejects any other branch). Trash is per document id. A later branch store would need a separate decision.
+- The six empty hardware files are not in this repository. The tests cover mutual imports, a `design.pattern` placement, and a joint that the UI can override and MCP cannot.
+- Purge does not scrub source copies stored inside `builds`.
+- Local history is main-only (`cad_documents.py` rejects any other branch). Trash is per document id.

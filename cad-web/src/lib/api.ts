@@ -607,6 +607,9 @@ export const Api = {
     api<{ document_id: string; folder_id: string | null; folder_path: string | null }>(`/v1/documents/${id}/folder`, json('POST', { folder_id: folderId })),
   updateDocument: (id: string, body: { name: string; kind: Kind; code: string; files?: Record<string, string>; links?: Record<string, LinkRef>; preview_build_id: string | null; revision: number; message?: string }) =>
     api<CadDocument>(`/v1/documents/${id}`, json('PUT', body)),
+  /** Removes component files as a new revision. `force` is the human Delete-anyway path. */
+  deleteComponentFiles: (id: string, body: { paths: string[]; revision: number; force?: boolean; code?: string; files?: Record<string, string>; links?: Record<string, LinkRef> }) =>
+    api<{ document: CadDocument; removed: string[]; warnings: string[]; references: { document_id: string; name: string; path: string | null; line: number | null; detail: string }[] }>(`/v1/documents/${id}/files/delete`, json('POST', body)),
   /** Saves a shop revision's succeeded build into the manufacturing library: each item created, revised or unchanged. */
   /** One step of running a saved revision of a CAM program (it must have built); ask again until `done`. */
   camRun: (id: string, revision: number) => api<CamRunState>(`/v1/documents/${id}/cam/run`, json('POST', { revision })),

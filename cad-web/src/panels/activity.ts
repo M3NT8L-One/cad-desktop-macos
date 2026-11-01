@@ -9,6 +9,7 @@ const TOOLS: Record<string, [running: string, done: string]> = {
   write_design: ['Writing the design', 'Wrote the design'],
   edit_design: ['Editing the code', 'Edited the code'],
   create_component: ['Adding a component', 'Added a component'],
+  cad_delete: ['Updating the project', 'Updated the project'],
   create_shop_item: ['Adding a shop item', 'Added a shop item'],
   link_design: ['Linking a design', 'Linked a design'],
   generate_model: ['Building the geometry', 'Built the geometry'],

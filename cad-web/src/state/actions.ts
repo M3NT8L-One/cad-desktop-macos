@@ -1,13 +1,13 @@
 import { buildCode } from '@/modeling/rollback';
 import { rememberStoppedBuild } from './stoppedBuild';
-import { BLENDER_TEMPLATE, builtFrom, CIRCUIT_MAIN, DESIGN_FILES, fileLabel, filesOf, hasFiles, imagePath, isImage, keepsFiles, MAIN, modelBuiltFrom, opened, SHOP_FILES, sourceFiles, stored, tablePath, withComponent, withLink, withoutComponent, latestModelBuild, manufactureBuild, showsModel } from './design';
+import { BLENDER_TEMPLATE, builtFrom, CIRCUIT_MAIN, DESIGN_FILES, fileLabel, filesOf, hasFiles, imagePath, isImage, keepsFiles, MAIN, modelBuiltFrom, opened, SHOP_FILES, sourceFiles, stored, tablePath, withComponent, withLink, latestModelBuild, manufactureBuild, showsModel } from './design';
 import { CIRCUIT_TEMPLATE } from '@/workspaces/electronics/template';
 import * as THREE from 'three';
 import { api, Api, ApiError, json, bodyMeshes, buildProgress, fetchTopology, forgetTopology, serverCapabilities, shopMetadata, withPrintMeshes, type Build, type CadDocument, type Kind, type LinkRef, type MeshResolution, type PackageDocument } from '@/lib/api';
 import { ModelRuntime, loadGltf } from '@/viewport/model';
 import { tween, viewer, VIEW_DIRECTIONS, type CameraPose } from '@/viewport/viewer';
 import {
-  buildFailureReport, get, hasContent, hasSourceEdits, hasUnsavedWork, initialDocState, isDirty, isNodeSeeThrough, isNodeVisible,isPreviewStale, nodeContains, patchDoc, readOnlyReason, readOnlyTitle, set, snapshot, toast, useApp,
+  buildFailureReport, dismissToast, get, hasContent, hasSourceEdits, hasUnsavedWork, initialDocState, isDirty, isNodeSeeThrough, isNodeVisible,isPreviewStale, nodeContains, patchDoc, readOnlyReason, readOnlyTitle, set, snapshot, toast, useApp,
   type AppState, type JobPhase, type Pick, type TreeNode,
 } from './store';
 import { bindWorkspaceData, loadWorkspaceData } from './workspaceData';
@@ -16,6 +16,7 @@ import { waitingLabel } from '@/lib/waiting';
 import { progressLabel } from '@/lib/buildProgress';
 import { clockFor, restartedLabel, runtimeText, type BuildClock } from '@/lib/restart';
 import { historicalDocument, restoreRevision } from '@/lib/history';
+import { askConfirm } from '@/ui/confirm';
 import { openTab } from './tabs';
 import { filedNew, folderForNew } from './newInFolder';
 import { withShopLink } from '@/workspaces/manufacture/shop/shopCode';
@@ -1788,21 +1789,60 @@ export async function importImage(file: File): Promise<string | true> {
 }
 
 /**
- * Deletes a component: its file, its import and its placements in main.py, saved as a new revision (undo or the
- * history bring it back). Returns why not when something else still uses it.
+ * Deletes a component file on the server: its import and its placements go with it, as a new revision.
+ * A real use (a joint, another file) asks before Delete anyway. Undo restores the previous revision.
  */
-export function removeComponent(path: string, id?: string): string | true {
+export async function removeComponent(path: string, force = false): Promise<string | true> {
   const { doc } = get();
   if (doc.kind !== 'design') return 'Components belong to designs.';
-  const files = filesOf(doc);
-  if (files[path] === undefined) return 'This component is already gone.';
-  const result = withoutComponent(files, path, id);
-  if ('users' in result) return `Used in ${result.users.join(', ')}: remove those uses first.`;
-  const activeFile = doc.activeFile === path ? MAIN : doc.activeFile;
-  patchDoc({ files: result.files, activeFile, code: result.files[activeFile] });
-  saveDraft();
-  void updateModel({ quiet: true });
-  return true;
+  if (!path.startsWith('components/') || !path.endsWith('.py')) return 'Choose a component file.';
+  const saved = doc.saved;
+  if (!saved) {
+    toast('warning', 'Save the design first', 'A component file is removed as a saved revision.');
+    return 'Save the design first.';
+  }
+  const source = stored(doc);
+  try {
+    const result = await Api.deleteComponentFiles(saved.id, {
+      paths: [path], revision: saved.revision, force, code: source.code, files: source.files, links: source.links,
+    });
+    const previous = saved.revision;
+    if (get().doc.saved?.id === saved.id) await applyDocumentRevision(result.document, null);
+    void updateModel({ quiet: true });
+    const label = fileLabel(path);
+    let undone = false;
+    let notice = 0;
+    const once = () => {
+      if (undone) return;
+      undone = true;
+      dismissToast(notice);
+      void undoRemovedFile(result.document.id, result.document.revision, previous);
+    };
+    notice = toast('info', `Removed ${label}`, undefined, { sticky: true, action: { label: 'Undo', run: once } });
+    setTimeout(() => dismissToast(notice), 9000);
+    if (result.warnings.length) toast('warning', `${label} is still mentioned`, result.warnings.join(' · '));
+    return true;
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 422 && !force) {
+      const references = (error.data.references as { path?: string | null; line?: number | null; detail?: string }[] | undefined) ?? [];
+      const detail = references.map((item) => item.line ? `${item.path ?? 'main.py'}:${item.line} ${item.detail ?? ''}`.trim() : item.detail).filter(Boolean).join(' · ');
+      if (!await askConfirm({ title: `Delete ${fileLabel(path)} anyway?`, detail: detail || error.message, action: 'Delete anyway' })) return 'cancelled';
+      return removeComponent(path, true);
+    }
+    const message = (error as Error).message;
+    toast('warning', `Couldn’t delete ${fileLabel(path)}`, message);
+    return message;
+  }
+}
+
+async function undoRemovedFile(id: string, revision: number, previous: number) {
+  try {
+    const restored = await restoreRevision(id, revision, String(previous));
+    if (get().doc.saved?.id === id) await applyDocumentRevision(restored.document, restored.model);
+    toast('success', 'Restored the component file');
+  } catch (error) {
+    toast('danger', 'Couldn’t undo the delete', (error as Error).message);
+  }
 }
 
 /**
