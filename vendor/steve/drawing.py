@@ -299,7 +299,7 @@ class Drawing:
                  views=("front", "top", "right", "iso"), front=("front", "top"), scale=None, hidden=True, shaded=False, dimensions=True, units=None, dual_units=None,
                  dual_precision=None, title=None, fields=None, revisions=(), bom=None, cut_list=False, notes=(), feature_dimensions=(), datums=(),
                  tolerance_frames=(), section_views=(), detail_views=(), balloons=(), hole_tables=(), title_block=None,
-                 welds=()):
+                 welds=(), template=None):
         # What each argument evaluated to, for the Drawing tab to edit one written as a variable or an expression.
         given, unwritable = {}, []
         for key, value in list(locals().items()):
@@ -342,6 +342,7 @@ class Drawing:
             raise ValueError("Drawing: dual_precision is the bracketed value's decimal places, 0 to 6.")
         self.dual_precision = dual_precision  # Ignored without dual_units, like each dimension's.
         self.shape, self.design, self.model, label = _source(source)
+        self.part_name = label or ""
         if FLAT in self.views and self.view_options[FLAT]["body"] is None:
             bodies = list(_sheet_bodies(self))
             if len(bodies) > 1:
@@ -353,8 +354,24 @@ class Drawing:
             raise ValueError("Drawing: fields must be a dict like {'number': 'BRK-001', 'material': '6061-T6'}.")
         self.fields = {str(key): _text(value, f"field {key!r}") for key, value in (fields or {}).items()}
         self.title_block = _title_layout(self, title_block)
-        # The title block's width, which the tables above it share.
+        # The title block's width, which the tables above it share. A catalog template (template="id") is the
+        # same width when the sheet has no title_block= of its own. Omitting template keeps the built-in block.
         self.table_width = max(cell["x"] + cell["width"] for row in self.title_block for cell in row["cells"]) if self.title_block else TITLE_WIDTH
+        self.placed = None
+        if self.title_block is None and template:
+            template_id = str(template).strip()
+            if template_id:
+                from .drawing_templates import fits, load_templates
+                catalog = load_templates()
+                block = catalog.get(template_id)
+                if block is None:
+                    known = ", ".join(sorted(catalog)) or "none"
+                    raise ValueError(f"Drawing: template {template_id!r} isn't in the catalog ({known}).")
+                if not fits(self.size, block):
+                    raise ValueError(f"Drawing: template {template_id!r} is {block['width']:g} × {block['height']:g} mm, "
+                                     f"larger than the {self.sheet} sheet's inner frame.")
+                self.placed = block
+                self.table_width = float(block["width"])
         self.revisions = []
         for row in revisions or ():
             if not isinstance(row, dict) or set(row) - {"rev", "description", "date", "by"}:
@@ -560,7 +577,7 @@ def _title_layout(drawing: "Drawing", layout) -> list[dict] | None:
             if field is not None and "text" in cell:
                 raise ValueError(f"{at} has a field or text, not both.")
             sizes = {}
-            for key, low in (("text_height", 1.5), ("label_height", 1.0)):
+            for key, low in (("text_height", 1.0), ("label_height", 1.0)):
                 size = cell.get(key)
                 if size is not None and (not _number(size) or not low <= size <= min(20.0, height)):
                     raise ValueError(f"{at}: {key} is in mm, {low:g} to {min(20.0, height):g} (its cell's height).")
@@ -2592,6 +2609,8 @@ def _title_place(left, bottom, width, height, size, align, valign, lines=1):
 def _title_block(sheet: Sheet, drawing: Drawing, x1, y0, scale_text, number, count):
     """ISO 7200-style title block in the bottom-right corner (TITLE_WIDTH wide), or the sheet's own (title_block=);
     returns its height."""
+    if getattr(drawing, "placed", None):
+        return float(drawing.placed["height"])
     style, fields = sheet.style, drawing.fields
     x = x1 - TITLE_WIDTH
 
@@ -2684,13 +2703,13 @@ def _title_block(sheet: Sheet, drawing: Drawing, x1, y0, scale_text, number, cou
     return row - y0
 
 
-def _stack(sheet: Sheet, drawing: Drawing, x1, bottom, top, hole_tables=()):
+def _stack(sheet: Sheet, drawing: Drawing, x1, bottom, top, hole_tables=(), skip_bom=False):
     """The parts list, cut list, hole tables (`hole_tables`: their numbers, titles and rows) and notes above the title
     block (ISO 7573: header at the bottom, items upward). Rows that don't fit are summarised. Returns the height used;
     each table and the notes record their region on the sheet."""
     x, used = x1 - drawing.table_width, 0.0
     sections = []
-    if drawing.bom:
+    if drawing.bom and not skip_bom:
         sections.append(("parts-list", None, "PARTS LIST", [12, 14, 74, 80], ["ITEM", "QTY", "NAME", "DESCRIPTION"],
                          [[str(i + 1), row["quantity"], row["name"], row["description"]] for i, row in enumerate(drawing.bom)]))
     if drawing.cut_list:
@@ -5127,7 +5146,12 @@ def _overlaps(sheet: Sheet) -> tuple[list[dict], int]:
 def render(drawing: Drawing, number: int, count: int, deadline: float | None = None) -> tuple[Sheet, dict]:
     """The sheet for a drawing (its views projected now) and what it reports."""
     sheet = Sheet(drawing.size, drawing.style)
-    x0, y0, x1, y1 = _frame(sheet, drawing.standard)
+    placed = getattr(drawing, "placed", None)
+    if placed:
+        from .drawing_templates import draw_frame
+        x0, y0, x1, y1 = draw_frame(sheet, placed, drawing.size)
+    else:
+        x0, y0, x1, y1 = _frame(sheet, drawing.standard)
     grid = GRID[drawing.projection]
     extent = drawing.shape.BoundingBox()
     tolerance = max(extent.DiagonalLength, 1.0) * 2e-4
@@ -5500,9 +5524,18 @@ def render(drawing: Drawing, number: int, count: int, deadline: float | None = N
     positions, cells = arranged[0]
 
     # Two ways to share the sheet with the tables; the one that draws the views larger wins.
+    # A catalog template's parts table hangs from the top of the sheet, so the revision table and the
+    # views stay below it, and the stacked parts list is not drawn a second time.
+    template_context = None
+    parts_h = 0.0
+    skip_bom = bool(placed and placed.get("parts_table"))
+    if placed:
+        from .drawing_templates import drawing_context, parts_table_height
+        template_context = drawing_context(drawing, placed, "", number, count)
+        parts_h = parts_table_height(placed, template_context)
     block = _title_block(Sheet(drawing.size, drawing.style), drawing, x1, y0, "", number, count)
-    revisions = _revision_table(Sheet(drawing.size, drawing.style), drawing, x1, y1)
-    stacked = _stack(Sheet(drawing.size, drawing.style), drawing, x1, y0 + block, y1 - revisions, stack_tables)
+    revisions = _revision_table(Sheet(drawing.size, drawing.style), drawing, x1, y1) + parts_h
+    stacked = _stack(Sheet(drawing.size, drawing.style), drawing, x1, y0 + block, y1 - revisions, stack_tables, skip_bom=skip_bom)
     pad = 6.0
     above = (x0 + pad, y0 + block + stacked + pad, x1 - pad, y1 - revisions - pad)
     beside = (x0 + pad, y0 + pad, x1 - drawing.table_width - pad, y1 - pad)
@@ -5527,9 +5560,17 @@ def render(drawing: Drawing, number: int, count: int, deadline: float | None = N
         scale, best, area = drawing.scale, drawing.scale, above
         scale_text = _scale_text(scale) if scale is not None else ""
     with sheet.layer("titleblock"):
-        _title_block(sheet, drawing, x1, y0, scale_text, number, count)
-        _revision_table(sheet, drawing, x1, y1)
-    _stack(sheet, drawing, x1, y0 + block, y1 - revisions, stack_tables)
+        if placed:
+            from .drawing_templates import draw_block, draw_parts_table
+            template_context["scale"] = scale_text
+            draw_block(sheet, placed, template_context, (x1 - placed["width"], y0))
+            if parts_h:
+                draw_parts_table(sheet, placed, template_context, x1, y1)
+            _revision_table(sheet, drawing, x1, y1 - parts_h)
+        else:
+            _title_block(sheet, drawing, x1, y0, scale_text, number, count)
+            _revision_table(sheet, drawing, x1, y1)
+    _stack(sheet, drawing, x1, y0 + block, y1 - revisions, stack_tables, skip_bom=skip_bom)
     for index, text, (x, y) in drawing.placed_notes:  # Each placed note on its own, to pick and move.
         with sheet.group(index, "note"):
             sheet.text(x, y, text, drawing.style["text"])

@@ -1,0 +1,201 @@
+{
+  "id": "keystone-ansi",
+  "label": "Keystone",
+  "default": true,
+  "standard": "ANSI",
+  "sheet": "B",
+  "orientation": "landscape",
+  "projection": "third",
+  "units": "in",
+  "dual_units": "mm",
+  "width": 140.04,
+  "height": 42.207,
+  "frame": {
+    "left": 15.748,
+    "right": 15.748,
+    "top": 9.652,
+    "bottom": 9.652,
+    "zones": false,
+    "center_marks": {"stem": 6.35, "head": 3.81, "half_width": 2.2}
+  },
+  "mass": {
+    "inch": "lb",
+    "mm": "kg",
+    "inch_places": 2,
+    "mm_places": 3,
+    "hardware_note": "WT EXCL. HARDWARE",
+    "incomplete_note": "WT INCOMPLETE"
+  },
+  "logo": {
+    "enabled": true,
+    "image": "logo.jpg",
+    "x": 105.287,
+    "y": 13.885,
+    "width": 34.294,
+    "height": 16.845,
+    "frame": false
+  },
+  "parts_table": {
+    "width": 129.888,
+    "title": "B.O.M.",
+    "title_height": 3.048,
+    "header_height": 3.048,
+    "row_height": 5.08,
+    "text": 2.127,
+    "columns": [
+      {"key": "item", "title": "ITEM", "width": 11.049},
+      {"key": "qty", "title": "QTY", "width": 11.242},
+      {"key": "name", "title": "PART NAME", "width": 54.077},
+      {"key": "material", "title": "MATERIAL", "width": 24.422},
+      {"key": "mass", "title": "MASS", "width": 29.098}
+    ]
+  },
+  "lines": [
+    [0, 0, 140.04, 0],
+    [0, 42.207, 140.04, 42.207],
+    [0, 0, 0, 42.207],
+    [140.04, 0, 140.04, 42.207],
+    [51.582, 0, 51.582, 42.207],
+    [0, 31.339, 140.04, 31.339],
+    [0, 13.597, 140.04, 13.597],
+    [0, 4.694, 140.04, 4.694],
+    [0, 9.134, 51.582, 9.134],
+    [15.776, 13.597, 15.776, 31.339],
+    [34.47, 13.597, 34.47, 31.339],
+    [63.812, 4.694, 63.812, 13.597],
+    [129.243, 4.694, 129.243, 13.597],
+    [73.878, 0, 73.878, 4.694],
+    [111.359, 0, 111.359, 4.694],
+    [51.582, 13.597, 87.495, 13.597],
+    [87.495, 13.597, 87.495, 19.977],
+    [51.582, 19.977, 87.495, 19.977]
+  ],
+  "texts": [
+    {
+      "x": 0, "y": 31.339, "width": 51.582, "height": 10.868, "align": "centre", "valign": "middle",
+      "lines": [
+        {"text": "TOLERANCES", "size": 2.13, "bold": true},
+        {"text": "UNLESS SPECIFIED OTHERWISE", "size": 1.77, "bold": true},
+        {"text": "DIMENSIONS ARE IN INCHES [MM]", "size": 1.42, "bold": false},
+        {"text": "MIRROR SYMMETRICAL DIMENSIONS", "size": 1.42, "bold": false}
+      ]
+    },
+    {
+      "x": 0, "y": 13.597, "width": 15.776, "height": 17.742, "align": "centre", "valign": "top",
+      "lines": [
+        {"text": "GENERAL ASSY", "size": 1.42, "bold": true},
+        {"text": "(BURN, FIT-UP)", "size": 1.24, "bold": false},
+        {"text": ".X = ± 0.250 [6]", "size": 1.24, "bold": false},
+        {"text": ".XX = ± 0.125 [3]", "size": 1.24, "bold": false},
+        {"text": ".XXX = ± 0.063 [1.5]", "size": 1.24, "bold": false},
+        {"text": "ANGLES = ± 1.5°", "size": 1.24, "bold": false},
+        {"text": "BREAK SHARP EDGES", "size": 1.24, "bold": false},
+        {"text": "REMOVE SLAG/DROSS", "size": 1.24, "bold": false}
+      ]
+    },
+    {
+      "x": 15.776, "y": 13.597, "width": 18.694, "height": 17.742, "align": "centre", "valign": "top",
+      "lines": [
+        {"text": "CAST", "size": 1.42, "bold": true},
+        {"text": "ISO 8062 / BS6615 TO CT9", "size": 1.24, "bold": false},
+        {"text": "RADII = 0.25 [6]", "size": 1.24, "bold": false},
+        {"text": "DRAFT = ±1.5°", "size": 1.24, "bold": false},
+        {"text": "MIRROR SYMMETRICAL DIMS", "size": 1.24, "bold": false},
+        {"text": "BREAK SHARP EDGES", "size": 1.24, "bold": false}
+      ]
+    },
+    {
+      "x": 34.47, "y": 13.597, "width": 17.112, "height": 17.742, "align": "centre", "valign": "top",
+      "lines": [
+        {"text": "MACHINE", "size": 1.42, "bold": true},
+        {"text": "FINISH = 125 RMS [3.2 Ra]", "size": 1.24, "bold": false},
+        {"text": ".X = ± .030 [0.8]", "size": 1.24, "bold": false},
+        {"text": ".XX = ± .010 [0.25]", "size": 1.24, "bold": false},
+        {"text": ".XXX = ± .005 [0.13]", "size": 1.24, "bold": false},
+        {"text": "ANGLES = ± 0.5°", "size": 1.24, "bold": false},
+        {"text": "BREAK SHARP EDGES", "size": 1.24, "bold": false},
+        {"text": "REMOVE BURRS/CHIPS", "size": 1.24, "bold": false}
+      ]
+    },
+    {
+      "x": 63.812, "y": 4.694, "width": 65.431, "height": 8.903, "align": "centre", "valign": "middle",
+      "lines": [
+        {"text": "CONFIDENTIAL INFORMATION", "size": 1.42, "bold": true},
+        {"text": "PROPERTY OF KEYSTONE SUPPLY AND ITS DESIGNEES", "size": 1.42, "bold": false},
+        {"text": "THIS DOCUMENT AND ACCOMPANIED INFORMATION IS STRICTLY CONFIDENTIAL", "size": 1.42, "bold": false},
+        {"text": "AND SHALL NOT BE DUPLICATED, DISCLOSED OR SHOWN TO UNAUTHORIZED", "size": 1.42, "bold": false},
+        {"text": "PERSONS WITHOUT WRITTEN CONSENT", "size": 1.42, "bold": false}
+      ]
+    }
+  ],
+  "fields": [
+    {
+      "field": "number", "label": "DRAWING NO", "source": "job_number", "override": "number",
+      "x": 51.582, "y": 31.339, "width": 88.458, "height": 10.868,
+      "label_size": 3.55, "size": 5.68, "align": "left", "valign": "bottom", "label_align": "left", "label_valign": "top"
+    },
+    {
+      "field": "description", "label": "DESCRIPTION",
+      "x": 51.582, "y": 19.977, "width": 88.458, "height": 11.362,
+      "label_size": 3.55, "size": 2.84, "align": "left", "valign": "bottom", "label_align": "left", "label_valign": "top"
+    },
+    {
+      "label": "MATERIAL TYPE(S)", "field": "material", "source": "material", "override": "material",
+      "assembly_text": "SEE ABOVE INDIVIDUAL PART DETAILS",
+      "x": 51.582, "y": 13.597, "width": 35.913, "height": 6.38,
+      "label_size": 2.13, "label_bold": true, "size": 1.77, "align": "left", "valign": "bottom", "label_valign": "top"
+    },
+    {
+      "label": "SIZE", "field": "size", "source": "size",
+      "x": 51.582, "y": 4.694, "width": 12.23, "height": 8.903,
+      "label_size": 3.19, "size": 2.84, "align": "centre", "valign": "bottom", "label_align": "centre", "label_valign": "top"
+    },
+    {
+      "label": "REV", "field": "revision", "source": "revision", "override": "revision",
+      "x": 129.243, "y": 4.694, "width": 10.797, "height": 8.903,
+      "label_size": 3.19, "size": 2.84, "align": "centre", "valign": "bottom", "label_align": "centre", "label_valign": "top"
+    },
+    {
+      "label": "APPROVED",
+      "x": 0, "y": 9.134, "width": 51.582, "height": 4.463,
+      "label_size": 3.19, "size": 2.48, "label_valign": "middle",
+      "slots": [
+        {"field": "approved_by", "align": "left"},
+        {"field": "approved_date", "align": "right", "size": 2.27}
+      ]
+    },
+    {
+      "label": "CHECKED",
+      "x": 0, "y": 4.694, "width": 51.582, "height": 4.44,
+      "label_size": 3.19, "size": 2.48, "label_valign": "middle",
+      "slots": [
+        {"field": "checked_by", "align": "left"},
+        {"field": "checked_date", "align": "right", "size": 2.27}
+      ]
+    },
+    {
+      "label": "DRAWN",
+      "x": 0, "y": 0, "width": 51.582, "height": 4.694,
+      "label_size": 3.19, "size": 2.48, "label_valign": "middle",
+      "slots": [
+        {"field": "drawn_by", "align": "left"},
+        {"field": "drawn_date", "align": "right", "size": 2.27}
+      ]
+    },
+    {
+      "label": "SCALE", "field": "scale", "source": "scale",
+      "x": 51.582, "y": 0, "width": 22.296, "height": 4.694,
+      "label_size": 3.19, "size": 2.69, "align": "right", "valign": "middle", "label_align": "left", "label_valign": "middle"
+    },
+    {
+      "label": "WEIGHT", "field": "weight", "source": "mass", "override": "weight",
+      "x": 73.878, "y": 0, "width": 37.481, "height": 4.694,
+      "label_size": 3.19, "size": 2.4, "align": "right", "valign": "middle", "label_align": "left", "label_valign": "middle"
+    },
+    {
+      "label": "SHEET", "field": "sheet", "source": "sheet", "override": "sheet",
+      "x": 111.359, "y": 0, "width": 28.681, "height": 4.694,
+      "label_size": 3.19, "size": 2.84, "align": "right", "valign": "middle", "label_align": "left", "label_valign": "middle"
+    }
+  ]
+}
