@@ -85,8 +85,11 @@ model.sheet_base("base", "sketch_1", rule=rule)
 - `sheet_cone(id, radius1, radius2, height=…, angle=360, rule=…)` makes a rolled cone or frustum.
   Give `height` (axial) or `slant` (generator length), not both. `radius_reference` is `"inside"` (default),
   `"outside"` or `"neutral"`. `angle` is the sweep about the axis (`90` is a quarter, `360` is a full ring
-  with one seam). `weld_gap_in` is a seam opening in inches, converted as `gap_mm = weld_gap_in * 25.4` and
-  removed from the developed large end; the default is 0. One K-factor per sheet. `facets=N` (N ≥ 2) is a
+  with one seam). `weld_gap_in` is a seam opening in inches, converted as `gap_mm = weld_gap_in * 25.4`.
+  `seam="arc"` (default) removes that length from the developed large end. `seam="plane"` trims each
+  radial end with a plane parallel to the axis, offset by half the gap from that end's radial plane;
+  on a smooth cone the flat edge is the developed curve of that cut (not a radial line), and on a
+  faceted cone the same planes cut the end panels. The default gap is 0. One K-factor per sheet. `facets=N` (N ≥ 2) is a
   press-brake taper: radii are the corner circumradius, N flat panels and N−1 bends. Omit `facets` for a
   smooth roll, developed as an annular sector of the neutral surface. Placement matches `sheet_roll`
   (`on` plane, axis along X). The flat is in the same DXF as every other sheet: outline on `CUT`, the

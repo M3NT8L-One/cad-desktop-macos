@@ -176,7 +176,7 @@ Bend-table CSV columns stay as they are. A cone row is identified by `kind=cone`
 sheet_cone(self, id, radius1, radius2, height=None, slant=None, angle=360,
            thickness=None, radius=None, k_factor=None, on="XY", body=None,
            name=None, suppressed=False, rule=None, source=None,
-           radius_reference="inside", weld_gap_in=0, facets=None)
+           radius_reference="inside", weld_gap_in=0, facets=None, seam="arc")
 ```
 
   `radius` is accepted only so the rule helper stays uniform; the smooth sector ignores it. `facets=None` is smooth.
@@ -281,4 +281,5 @@ These were open in the study and are now fixed in `sheet_cone`:
 - One K-factor per sheet. A cone with no K-factor is an error. Faceted bend allowances use that same K (`γ × (bend radius + K × thickness)`), not a second K.
 - Axial height or slant height, exactly one. `Give an axial height or a slant height.` and `Give an axial height or a slant height, not both.`
 - Faceted radii are the corner circumradius. The corner chord is `2 R sin(δ / 2)`.
-- `weld_gap_in` defaults to 0. Inches become millimetres by multiplying by 25.4 inside `cone_math.weld_gap_mm`. The gap is removed from the developed large-end arc (smooth) or the developed large-end cut path (faceted), including partial sweeps.
+- `weld_gap_in` defaults to 0. Inches become millimetres by multiplying by 25.4 inside `cone_math.weld_gap_mm`.
+- `seam='arc'` (default) removes that length from the developed large-end boundary. `seam='plane'` instead trims each radial end with a plane parallel to the axis, offset by half the gap from that end's radial plane. A smooth cone develops the cut as `ψ(S) = sin α · asin(offset / (S sin α))`; the flat area is the exact integral of that curve. A faceted cone cuts the end panels. A full 360° sweep has only one end plane, so a positive plane gap is rejected. A gap that pinches the sweep is rejected.
