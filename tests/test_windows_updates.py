@@ -17,7 +17,7 @@ class StagedWindowsUpdates(unittest.TestCase):
             # Staged updates stay installable after the feed manifest's expiry.
             manifest=sign(key,version='99.0.0',platform='windows-x64',url='https://example.test/update.zip',sha256='a'*64,expires=expires_in(-1))
             remember(profile,candidate,manifest)
-            self.assertEqual(pending(profile),candidate)
+            self.assertEqual(pending(profile),candidate.resolve())
             (candidate/'Steve.exe').write_bytes(b'changed runtime')
             with self.assertRaisesRegex(ValueError,'changed'):pending(profile)
             (candidate/'Steve.exe').write_bytes(b'test runtime')
