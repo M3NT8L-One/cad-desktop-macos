@@ -16,7 +16,7 @@ class LegacyProfileTests(unittest.TestCase):
                 db.execute('CREATE TABLE memory_files(path TEXT PRIMARY KEY, content TEXT)')
                 db.execute('INSERT INTO memory_files VALUES (?,?)',('stevelocal/main/MEMORY.md','Keep this note'))
             target=migrate_profile(root)
-            self.assertEqual(target,root/'Steve/CAD')
+            self.assertEqual(target,(root/'Steve/CAD').resolve())
             self.assertEqual(Vault(target/'credentials.dpapi').load(),{'test':'encrypted'})
             self.assertEqual((target/'cad/catalog.json').read_bytes(),(old/'cad/catalog.json').read_bytes())
             with closing(sqlite3.connect(target/'memory.sqlite3')) as db, db:
