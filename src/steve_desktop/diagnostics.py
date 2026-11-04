@@ -47,21 +47,35 @@ def redact_report(text, secrets=(), home=None, user=None):
             user = getpass.getuser()
         except Exception:
             user = ''
-    text = _redact(text, secrets)
+    # Apply home / email / username before the long-token wipe so absolute paths that
+    # are ≥80 characters (common under macOS /var/folders/…) become [home] instead of
+    # [long value omitted]. Keep both the lexical and resolved forms: on Darwin,
+    # /var is a symlink to /private/var, so tempfile paths and Path.resolve() disagree.
     text = EMAIL.sub('[email]', text)
     for pattern, replacement in HOME_FOLDERS:
         text = pattern.sub(replacement, text)
     homes = []
     if home and len(home) > 3:  # A home folder outside the usual locations.
         homes.append(home)
+        home_path = Path(home)
         try:
             # Tracebacks often contain the resolved path when the home directory
             # itself is a symlink (another disk, or a bind mount).
-            resolved = str(Path(home).resolve())
+            resolved = str(home_path.resolve())
         except OSError:
             resolved = ''
-        if resolved and len(resolved) > 3 and resolved not in homes:
+        if resolved and len(resolved) > 3:
             homes.append(resolved)
+            # /private/var/… ↔ /var/… (and the same for /tmp).
+            if resolved.startswith('/private/'):
+                homes.append(resolved[len('/private'):])
+        try:
+            if home_path.is_symlink():
+                link = home_path.readlink()
+                target = link if link.is_absolute() else home_path.parent / link
+                homes.append(str(target))
+        except OSError:
+            pass
     forms = []
     for item in homes:
         forms.extend((item, item.replace('\\', '/'), item.replace('\\', '\\\\')))
@@ -70,8 +84,7 @@ def redact_report(text, secrets=(), home=None, user=None):
             text = re.sub(re.escape(form) + r'(?![A-Za-z0-9._-])', '[home]', text, flags=re.I)
     if user and len(user) >= 3:
         text = re.sub(r'(?<![A-Za-z0-9])' + re.escape(user) + r'(?![A-Za-z0-9])', '[user]', text, flags=re.I)
-    return text
-
+    return _redact(text, secrets)
 
 def tail_bytes(text, limit):
     """The most recent part of a log, at most `limit` UTF-8 bytes, starting on a whole line."""
