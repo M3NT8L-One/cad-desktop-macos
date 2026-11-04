@@ -6,7 +6,7 @@ import threading
 import tempfile
 import unittest
 import zipfile
-from pathlib import Path, PosixPath
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -146,8 +146,8 @@ class BlenderRuntimeTests(unittest.TestCase):
             return probe_fn(str(path))
         env={'STEVE_BLENDER':''}
         if environ:env.update(environ)
-        # Python 3.13 refuses to construct WindowsPath when os.name is nt on Linux.
-        # The Windows branch still runs; PosixPath stands in for the filesystem.
+        # Python 3.13 refuses cross-flavour path construction (WindowsPath on
+        # POSIX, PosixPath on Windows). Pass the host's concrete Path subclass.
         path_type=path_type or Path
         with patch('steve_desktop.blender_runtime.platform.system',return_value=system), \
              patch('steve_desktop.blender_runtime.os.name',name), \
@@ -203,6 +203,10 @@ class BlenderRuntimeTests(unittest.TestCase):
         self.assertEqual(seen,['/usr/bin/blender','/snap/bin/blender'])
 
     def test_windows_discover_keeps_program_files_layout(self):
+        # Capture the host concrete path type before platform mocks. Python 3.13
+        # refuses PosixPath on native Windows (and WindowsPath on POSIX), so the
+        # Windows-discovery fixture must use the host's real path class.
+        host_path = type(Path())
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)
             executable=root/'Program Files'/'Blender Foundation'/'Blender 4.5'/'blender.exe'
@@ -211,9 +215,9 @@ class BlenderRuntimeTests(unittest.TestCase):
             accepted={'path':str(executable),'version':'4.5.9','build':'win'}
             def fake_probe(path):
                 # os.name is nt for this call, so pathlib.Path would be a WindowsPath and miss the file.
-                self.assertTrue(PosixPath(path).is_file())
+                self.assertTrue(host_path(path).is_file())
                 return accepted
-            found,seen=self._candidates(root/'runtime','Windows',fake_probe,name='nt',environ={'PROGRAMFILES':str(root/'Program Files')},path_type=PosixPath)
+            found,seen=self._candidates(root/'runtime','Windows',fake_probe,name='nt',environ={'PROGRAMFILES':str(root/'Program Files')},path_type=host_path)
         self.assertEqual(found,accepted)
         self.assertEqual(seen,[str(executable)])
 
