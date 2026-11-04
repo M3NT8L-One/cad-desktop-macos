@@ -60,6 +60,53 @@ class RedactionTests(unittest.TestCase):
             self.assertIn('api-key: [redacted]', result)
             self.assertEqual(redact_report(result, home=str(home), user='alex'), result)
 
+    def test_symlinked_home_redacts_lexical_and_resolved_forms(self):
+        # Build a symlink in a temp dir so this reproduces on Linux too, not only Mac.
+        # Embed both the lexical target and home.resolve() — on Darwin those differ
+        # (/var vs /private/var). Both must become [home], even when the path is ≥80 chars.
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            resolved = base / 'data' / 'disk' / 'mount' / 'volume' / 'users' / 'u-9f3a-extra-padding-xxxxxxxx'
+            resolved.mkdir(parents=True)
+            home = base / 'homes' / 'alex'
+            home.parent.mkdir()
+            home.symlink_to(resolved, target_is_directory=True)
+            lexical = str(resolved)
+            real = str(home.resolve())
+            text = (
+                f'open {lexical}/bracket.step\n'
+                f'also {real}/other.step\n'
+                'short-token ok\n'
+                'note: hello world stays\n'
+            )
+            self.assertGreaterEqual(len(f'{lexical}/bracket.step'), 80)
+            result = redact_report(text, home=str(home), user='alex')
+            self.assertNotIn('u-9f3a', result)
+            self.assertNotIn('[long value omitted]', result)
+            self.assertIn('[home]/bracket.step', result)
+            self.assertIn('[home]/other.step', result)
+            self.assertIn('short-token ok', result)
+            self.assertIn('note: hello world stays', result)
+            self.assertEqual(redact_report(result, home=str(home), user='alex'), result)
+
+    def test_redaction_keeps_short_text_and_still_scrubs_long_secrets(self):
+        # Both-ways: ordinary non-path text and short tokens must survive; long secrets
+        # (and ≥80-char opaque values) must still be scrubbed after the home-first reorder.
+        long_secret = 'A' * 100
+        text = (
+            f'payload={long_secret}\n'
+            'ok short phrase\n'
+            'id=ab\n'
+            f'open /srv/people/morgan/file\n'
+        )
+        result = redact_report(text, secrets=['notusedhere'], home='/srv/people/morgan', user='morgan')
+        self.assertIn('[long value omitted]', result)
+        self.assertNotIn(long_secret, result)
+        self.assertIn('ok short phrase', result)
+        self.assertIn('id=ab', result)
+        self.assertIn('[home]/file', result)
+        self.assertNotIn('/srv/people/morgan', result)
+
     def test_log_is_capped_to_its_most_recent_whole_lines(self):
         log = '\n'.join(f'line {n}' for n in range(1000))
         kept, truncated = tail_bytes(log, 100)
