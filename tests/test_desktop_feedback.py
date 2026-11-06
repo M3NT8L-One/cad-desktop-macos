@@ -107,6 +107,16 @@ class RedactionTests(unittest.TestCase):
         self.assertIn('[home]/file', result)
         self.assertNotIn('/srv/people/morgan', result)
 
+    def test_secret_holding_the_account_name_is_removed_whole(self):
+        # Secrets go first: the account-name pass must not change part of a secret
+        # before it is matched, which would leave the rest of it in the report.
+        secret = 'tok-alex-9f8e7d6c5b4a'
+        email_secret = 'pw-alex@example.com-x1'
+        result = redact_report(f'auth {secret} then {email_secret} done', secrets=[secret, email_secret], home='/srv/people/alex', user='alex')
+        self.assertNotIn('9f8e7d6c5b4a', result)
+        self.assertNotIn('x1 done', result.replace('[redacted] done', ''))
+        self.assertEqual(result, 'auth [redacted] then [redacted] done')
+
     def test_log_is_capped_to_its_most_recent_whole_lines(self):
         log = '\n'.join(f'line {n}' for n in range(1000))
         kept, truncated = tail_bytes(log, 100)

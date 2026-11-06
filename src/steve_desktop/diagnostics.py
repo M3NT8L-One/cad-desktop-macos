@@ -10,10 +10,16 @@ from steve_desktop.vault import Vault
 _lock = threading.RLock()
 
 
-def _redact(text, secrets=()):
+def _redact_secrets(text, secrets=()):
+    """The exact secrets this app holds, longest first."""
     text = str(text)
     for secret in sorted((str(s) for s in secrets if s and len(str(s)) >= 4), key=len, reverse=True):
         text = text.replace(secret, '[redacted]')
+    return text
+
+
+def _redact(text, secrets=()):
+    text = _redact_secrets(text, secrets)
     text = re.sub(r'https?://[^\s<>\"\']+', '[URL omitted]', text)
     text = re.sub(r'data:image/[^\s\"\']+', '[image omitted]', text)
     text = re.sub(r'(?i)(bearer\s+)[^\s,;\"\']+', r'\1[redacted]', text)
@@ -47,6 +53,9 @@ def redact_report(text, secrets=(), home=None, user=None):
             user = getpass.getuser()
         except Exception:
             user = ''
+    # Known secrets first, while they're still exactly as held: the home, email and
+    # account-name passes below could change part of one so it no longer matches.
+    text = _redact_secrets(text, secrets)
     # Apply home / email / username before the long-token wipe so absolute paths that
     # are ≥80 characters (common under macOS /var/folders/…) become [home] instead of
     # [long value omitted]. Keep both the lexical and resolved forms: on Darwin,
@@ -84,7 +93,8 @@ def redact_report(text, secrets=(), home=None, user=None):
             text = re.sub(re.escape(form) + r'(?![A-Za-z0-9._-])', '[home]', text, flags=re.I)
     if user and len(user) >= 3:
         text = re.sub(r'(?<![A-Za-z0-9])' + re.escape(user) + r'(?![A-Za-z0-9])', '[user]', text, flags=re.I)
-    return _redact(text, secrets)
+    return _redact(text)
+
 
 def tail_bytes(text, limit):
     """The most recent part of a log, at most `limit` UTF-8 bytes, starting on a whole line."""
